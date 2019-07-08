@@ -5,14 +5,14 @@ Python helper functions to facilitate working with CoreML and ONNX and convertin
 These functions depend on package `coremltools`. If you are converting between ONNX and CoreML,
 you will need `onnx_coreml`, `onnx`, and `onnxruntime` as well.
 
-.. tip::
+
   If you want *real* help with CoreML, I highly recommend **Matthijs Holleman's**
   *“Core ML Survival Guide.”*. Informative and well-written.
   Easy to read, as much as books on this subject can be.
 
 Also,
 
-.. tip::    Use **Netron**
+  Use **Netron**
 
 In `coreml_help.py` you will find:
 
