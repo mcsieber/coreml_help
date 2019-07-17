@@ -30,4 +30,4 @@ batch_size     = 32
 
 ### Run script to continue the setup ..
 #
-%run -i {user_lib}/the_usual_suspects.py  # --show [ Proj Paths Env All None ] # defaults to 'Proj'
+%run -i {user_lib}/complete_setup.py  # --show [ Proj Paths Env All None ] # defaults to 'Proj'
