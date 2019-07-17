@@ -1,9 +1,9 @@
 
-from coreml_help import *
+from ..coreml_help import *
 from re import search
 
 """
-Tests for ms_core
+Tests for coreml_help
 """
 
 
@@ -13,7 +13,7 @@ def test_CoremlBrowser(ml_path):
   assert ml_file.exists()
   assert ml_file.is_file()
   cmb = CoremlBrowser(ml_file)
-  assert cmb.mf_path is not None
+  assert cmb.mlmodel_path is not None
   assert cmb.spec is not None
   assert cmb.shaper is not None
   assert cmb.nn is not None
@@ -96,7 +96,7 @@ def test_show_nn_shapes(ml_CoremlBrowser, capsys):
   cmb.show_nn(0,5)
   lines     = _check_show_nn(capsys)
   l1        = lines[1]
-  assert search("CHW=",l1) or search('key not found',l1)
+  assert search("CHW=",l1) or search('key not found',l1) or search('not available',l1)
 
 
 def test_show_nn_neg(ml_CoremlBrowser, capsys):

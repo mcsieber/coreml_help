@@ -3,7 +3,7 @@ Fixtures for pytest'ing ms_core
 """
 from pathlib import Path
 import pytest
-from coreml_help import CoremlBrowser
+from ..coreml_help import CoremlBrowser
 import coremltools.models.utils as cu
 import coremltools.models.model as cm
 

@@ -1,5 +1,5 @@
 ## General
-html/*
+# html/*
 docs/*
 
 # OSX, PyCharm, Notebook checkpoints, Compiled python
