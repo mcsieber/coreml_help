@@ -242,13 +242,19 @@ class CoremlBrowser(object):
     """
     s, line = None, None
 
+    if self.shaper is None and self.shape_dict is None : return f" - shapes not available - "
+
     if self.shaper is not None:
       try:
         s = self.shaper.shape(name)
       except IndexError as e:
         line = f"      - {e} - "
-    else:
-      line =   f"      - Shape info not available - "
+
+    if self.shape_dict is not None:
+      try:
+        s = self.shape_dict['layer_shapes'][name]
+      except Exception as e:
+        line = f" - no shapes for {name} - "
 
     return s if s is not None else line
 
@@ -331,7 +337,10 @@ class CoremlBrowser(object):
     """
     s = self.get_shape_for(name)
     if type(s) is dict:
-      line = f"CHW: {s['C']} {s['H']} {s['W']}   SB:{s['S']}{s['B']}"
+      if 'k' in s.keys():
+        line = f"khwn: {s['k']} {s['h']} {s['w']} {s['n']}"
+      else:
+        line = f"CHW: {s['C']} {s['H']} {s['W']}   SB:{s['S']}{s['B']}"
     else:
       line = f"      - Shape info not available - "
 
