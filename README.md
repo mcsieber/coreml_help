@@ -8,8 +8,8 @@ These functions depend on package `coremltools`. If you are converting between O
 you will need `onnx_coreml`, `onnx`, and `onnxruntime` as well.
 
 
-  If you want *real* help with CoreML, I highly recommend **Matthijs Holleman's**
-  *“Core ML Survival Guide.”*. Informative and well-written.
+  If you want *real* help with CoreML, I highly recommend [**Matthijs Holleman's**](https://github.com/hollance)
+  [*“Core ML Survival Guide.”*](https://leanpub.com/coreml-survival-guide) Informative and well-written.
   Easy to read, as much as books on this subject can be.
 
 Also,

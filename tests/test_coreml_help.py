@@ -15,7 +15,7 @@ def test_CoremlBrowser(ml_path):
   cmb = CoremlBrowser(ml_file)
   assert cmb.mlmodel_path is not None
   assert cmb.spec is not None
-  assert cmb.shaper is not None
+  assert cmb.shaper is not None or cmb.layer_shapes is not None
   assert cmb.nn is not None
   assert cmb.layers is not None
   assert cmb.layer_count >= 2
@@ -93,10 +93,10 @@ def test_show_nn_0_5(ml_CoremlBrowser,capsys):
 def test_show_nn_shapes(ml_CoremlBrowser, capsys):
   """ Check for a 'shape' or 'key not found' """
   cmb = ml_CoremlBrowser
-  cmb.show_nn(0,5)
+  cmb.show_nn(0,10)
   lines     = _check_show_nn(capsys)
   l1        = lines[1]
-  assert search("CHW=",l1) or search('key not found',l1) or search('not available',l1)
+  assert search('c h w',l1) or search('n/a',l1)
 
 
 def test_show_nn_neg(ml_CoremlBrowser, capsys):
