@@ -84,18 +84,24 @@ import coremltools.models.model as cm
 ### Convenience Types
 # If a type starts with a 'u', it is almost certainly one of these, and defined here
 #
-if 'uarray' not in globals():
+if 'Uarray' not in globals():
   from typing import Union, List
   from PIL    import Image
   from numpy  import ndarray
 
-  uarray = Union[ndarray, List]
-  uimage = Union[ndarray, Image.Image]
-  upath  = Union[Path,str]
+  Uarray = Union[ndarray, List]
+  Uimage = Union[ndarray, Image.Image]
+  Upath  = Union[Path,str]
 
-### Data , data sources and functions #########################
+### Data Formats #########################
 
-ImageRepo = namedtuple('ImageRepo' ,"mean std labels_url")
+LayerAudit = namedtuple('LayerAudit', 'changed_layer input_before input_after error')
+ImagePrediction = namedtuple('ImagePrediction', 'topI topP topL')
+ImageRepo  = namedtuple('ImageRepo' , 'mean std labels_url')
+
+### Data, Data Sources
+
+# _default_change = LayerAudit(changed_layer="NONE", input_before=None, input_after=None, error=None)
 
 imagenet = ImageRepo( mean   = [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225],
                       labels_url ='https://s3.amazonaws.com/onnx-model-zoo/synset.txt' )
@@ -103,7 +109,6 @@ imagenet = ImageRepo( mean   = [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225]
 cifar    = ImageRepo( mean = [0.491, 0.482, 0.447], std=[0.247, 0.243, 0.261], labels_url=None)
 
 mnist    = ImageRepo( mean = [0.15]*3, std  = [0.15]*3, labels_url=None)
-
 
 _sp      = ' '  # Spacer, e.g. f"{_sp:10}"
 
@@ -232,7 +237,7 @@ class CoremlBrowser(object):
 
  # def __init__(self, mlmodel_file:upath= None, mlmodel:object= None):
 
-  def __init__(self, model_path_file:Union[upath, MLModel] ):
+  def __init__(self, mlmodel:Union[Upath, MLModel] ):
 
     # if mlmodel_file is None and mlmodel is None :
     #   raise ValueError("Either 'mlmodel_file=' or 'mlmodel=' must be specified")
@@ -240,12 +245,14 @@ class CoremlBrowser(object):
     self.mlmodel      = None
     self.mlmodel_path = None
 
-    if type(model_path_file) is not MLModel:
-      self.mlmodel_path = Path(model_path_file)
+    if isinstance(mlmodel,MLModel):
+      self.mlmodel      = mlmodel
+      self.mlmodel_path = None
+    elif isinstance(mlmodel,Path) or isinstance(mlmodel,str):
+      self.mlmodel_path = Path(mlmodel)
       self.mlmodel      = cm.MLModel(self.mlmodel_path.as_posix())
     else:
-      self.mlmodel      = model_path_file
-      self.mlmodel_path = None
+      raise TypeError("'mlmodel is not a MLModel, a Path, or a file path string")
 
     self.spec = self.mlmodel.get_spec()
     """ (Protobuf) spec for the model"""
@@ -285,7 +292,7 @@ class CoremlBrowser(object):
 
     # Show this last
     v = self.spec.description
-    nv_text = f"{n:17.17} = {v}"
+    nv_text = f"\n{n:17.17} = {v}"
     print(nv_text)
     all_text.join(nv_text)
 
@@ -319,14 +326,21 @@ class CoremlBrowser(object):
 
     return res
 
+  def get_layer_name(self, name:str):
+    """Locate and return a nn layer using its name"""
+    return self.layers[self.layer_dict[name]]
+
+  def get_layer_num(self, idx:int):
+    """Locate and return a nn layer using its index value"""
+    return self.layers[idx]
 
   def get_nn(self) -> Model_pb2.Model.neuralNetwork:
     """
     Get the layers object for a CoreML neural network.
 
-    Args:
-      spec (Model): The `protobuf` spec. for this CoreML model.
-                    Returned by `coremltools.util.load_spec("file.mlmodel")`
+    Uses:
+      self.spec (Model): The `protobuf` spec. for this CoreML model.
+                Returned by `coremltools.util.load_spec("file.mlmodel")`
 
     Return:
       The neural network layers of the model or an Attribute Error.
@@ -398,7 +412,7 @@ class CoremlBrowser(object):
     """
     s = self.get_shape_for(name)
 
-    if s is None : return f" CHW: -   -   - "
+    if s is None : return f"        -   -   - "
 
     if type(s) is dict:
       if 'k' in s.keys():
@@ -583,14 +597,12 @@ class CoremlBrowser(object):
 
     ldict        = self.layer_dict
     layers       = self.layers
-    layer_change = namedtuple('layer_audit','changed_layer input_before input_after error')
     layer_names  = ldict.keys()
     missing      = [ name for name  in [from_, to_] if name not in layer_names ]
 
-    if len(missing) > 0: return layer_change(changed_layer = "NONE",
-                                             error         = f"Layer(s) {[missing]} not found",
-                                             input_before  = None,
-                                             input_after   = None )
+    if len(missing) > 0:
+      return LayerAudit(changed_layer="NONE", input_before=None, input_after=None, error=f"Layer(s) {[missing]} not found")
+
     from_layer   = layers[ldict[from_]]
     to_layer     = layers[ldict[to_]]
     input_before = deepcopy(to_layer.input)
@@ -602,10 +614,7 @@ class CoremlBrowser(object):
     for i in range(len(from_layer.output)):
       to_layer.input.append(from_layer.output[i])
 
-    return layer_change(changed_layer = to_layer.name,
-                        input_before  = input_before,
-                        input_after   = deepcopy(to_layer.input),
-                        error = None )
+    return LayerAudit(changed_layer=to_layer.name, input_before=input_before, input_after=deepcopy(to_layer.input), error=None)
 
 
   def delete_layers(self, names_to_delete:[str])->[dict]:
@@ -648,6 +657,14 @@ class CoremlBrowser(object):
 
     return deleted
 
+  def compile_spec(self)->MLModel:
+    """
+    Convenience to re-compile and save model after editing the spec
+    """
+    self.mlmodel = cm.MLModel(self.spec)
+    return self.mlmodel
+
+
 # Convenience Routines
 
 def show_nn(cmb:CoremlBrowser, start:Union[int, str]=0, count=4, break_len=8):
@@ -663,242 +680,15 @@ def show_tail(cmb:CoremlBrowser):
   """ Convenience for `show_nn(nn,-3)`"""
   show_nn( cmb, -3)
 
-""" 
-Layer Calculations
-"""
 
-def softmax( x:uarray )->ndarray:
-  """
-  Scale values to be between 0.0 - 1.0 so they can be used as probabilities.
-  Formula is:
-  
-      exp(x)/sum(exp(x))
-
-  Args:
-    x (Union[List,ndarray]): Values on which to calculate the softmax.
-                             Should be ndarray or convertible to an ndarray
-
-  Returns:
-    softmax as ndarray
-
-  """
-
-  np_exp = np.exp(np.array(x))
-  return np_exp / np.sum(np_exp, axis=0)
-
-
-def norm_for_imagenet( img:uimage )->ndarray:
-  """
-  Normalize an image using ImageNet values for mean and standard deviation.
-
-  For each pixel in each channel, scale to the interval [0.0, 1.0] and then
-  normalize using the mean and standard deviation from ImageNet.
-  The input values are assumed to range from 0-255,
-  input type is assumed to be an ndarray,
-  or an image format that can be converted to an ndarray.
-  Here is the formula:
-
-      normalized_value = (value/255.0 - mean)/stddev
-      
-      mean = [0.485, 0.456, 0.406]
-      std  = [0.229, 0.224, 0.225]
-
-  Args:
-    img (Union[ndarray, Image.Image]):
-      Image data with values between 0-255. 
-      If not an ndarray, must be convertible to one.
-      Shape must be either (3,_,_) or (_,_,3)
-
-  Return:
-    Normalized image data as an ndarray[float32]
-
-  Raises:
-    ValueError: If image shape is not (3,_,_) or (_,_,3), or number of dimensions is not 3
-
-  """
-  img = np.array(img)
-  if img.ndim != 3 : raise ValueError(f"Image has {img.ndim} dimensions, expected 3")
-
-  # Mean and Stddev for image net
-  mean  = imagenet.mean
-  std   = imagenet.std
-
-  shape = img.shape
-  nimg  = np.zeros(shape).astype('float32')
-
-  # for each pixel in each channel, divide the value by 255 to get value between [0, 1] and then normalize
-  if shape[0] == 3:
-    for i in range(3): nimg[i, :, :] = (img[i, :, :] / 255.0 - mean[i]) / std[i]
-  elif shape[2] == 3:
-    for i in range(3): nimg[:, :, i] = (img[:, :, i] / 255.0 - mean[i]) / std[i]
-  else:
-    raise ValueError(f"Image shape is {shape}, expected (3,_,_) or (_,_,3)")
-
-  return nimg
-
-
-""" 
-Model Execution and Prediction
-"""
-
-def pred_for_o2c(model, img, n_top=3, in_name='data', out_name='resnetv24_dense0_fwd', labels=None):
-  """
-  Run the CoreML Classifier model that was converted from ONNX and return the top results.
-
-  This function converts the output from the final layer to a list of probabilities,
-  then extracts the top items and associated labels.
-
-  This step is needed because the ONNX Resnet50 model does not contain a final softmax layer, and the
-  conversion to CoreML does not add one. (The native CoreML Resnet50 does have a softmax layer)
-
-  Args:
-    model (object): The CoreML model to use for inference
-    img (Image.Image): The image to process. Expected to be an image with values 0-255
-    in_name (str): Starting Layer Input name
-    out_name (str): Final Layer Output name
-    n_top (int): Number of top values to return (default 3)
-    labels ([str]): Class Labels for output
-
-  Return:
-    dict with four items:
-
-      - topI [ Indexes to top probabilities ], from np.argsort
-      - topP [ Top probabilities ]
-      - topL [ Top Labels ]
-      - topRes [ Top Labels and probabilities as formatted strings ], or [] if labels=None
-  """
-
-  topI, topP, topL, topRes = [0], [0.00], ["No Results"], ["No Results"]
-  try:
-    y = model.predict({in_name:img}, usesCPUOnly=True)
-
-  except Exception as e :
-    topRes[0] = f"No Results; Exception: {e}"
-    print('Exception:',e)
-
-  else:
-    r    = y[out_name]
-    res  = np.squeeze(np.array(r))
-    prob = softmax(res)
-    topI = np.argsort(prob)[:-(n_top+1):-1]
-    topP = [ prob[i]*100 for i in topI ],
-    topL = [ labels[i]   for i in topI ],
-    topRes = [f"{labels[i][:30]:32} {100 * prob[i]:.4g}" for i in topI]
-    #
-  return dict(topI=topI , topP=topP, topL=topL, topRes=topRes)
-
-
-def pred_for_onnx(sess, img:uimage, n_top=3, labels=None):
-  """
-  Run the ONNX Classifier model and return the top results.
-
-  This function
-
-    - normalizes the image data,
-    - if needed, massages the data to a shape of (3,_,_)
-    - runs the model using `onnxruntime`
-    - converts the output from the final layer to a list of probabilities,
-    - extracts the top items and associated labels.
-
-  Args:
-    sess (object) : the ONNX run-time session(model) to use for prediction
-    img (Union[ndarray,Image.Image]):  image or image data to use for test
-    n_top (int): Number of top values to return (default 4)
-    labels ([str]): Class labels for output
-
-  Return:
-    Dict with four items:
-    
-      - topI [ Indexes to top probabilities ], from argsort
-      - topP [ Top probabilities ]
-      - topL [ Top Labels ]
-      - topRes [ Top Labels and probabilities as formatted strings ], or [] if labels=None
-  """
-  # Use the image to generate acceptable input for the model
-  # - move axes if needed, normalize, add a dimension to make it (1,3,224,224)
-  nimg  = np.array(img)
-  nimg2 = np.moveaxis(nimg,[0,1,2],[1,2,0]) if nimg.shape[2] == 3 else nimg
-  topI, topP, topL, topRes = [0], [0.00], ["No Results"], ["No Results"]
-
-  try: pimg  = norm_for_imagenet(nimg2)
-  except Exception as e :
-    print('Exception:',e)
-    return dict(topI=topI, topP=topP, topL=topL, topRes=topRes)
-
-  x     = np.array([pimg])
-  # Get input and output names for the model
-  input0 = sess.get_inputs()[0]
-  output = sess.get_outputs()[0]
-  input0_name = input0.name
-  output_name = output.name
-
-  # Run the model
-  try:
-    r = sess.run([output_name], {input0_name: x})
-
-  except Exception as e :
-    topRes[0] = f"No Results; Exception: {e}"
-    print('Exception:',e)
-
-  else:  # Get predictions from the results
-    res  = np.squeeze(np.array(r))  # eliminate dimensions w/ len=1 , e.g. from (1,1,1000) --> (1000,)
-    prob = softmax(res)
-    topI = np.argsort(prob)[:-(n_top+1):-1]
-    topP = [ prob[i]*100 for i in topI ],
-    topL = [ labels[i]   for i in topI ],
-    topRes = [f"{labels[i][:30]:32} {100 * prob[i]:.4g}" for i in topI]
-
-  return dict(topI=topI, topP=topP, topL=topL, topRes=topRes)
-
-
-def pred_for_coreml(model, img, n_top=3, in_name='image', out_name='classLabelProbs'):
-  """
-  Run a native CoreML Classifier and return the top results.
-
-  Args:
-    model (object) : the coreml model to use for the prediction
-    in_name (str): Starting Input Layer name
-    out_name (str): Final Output Layer name
-    img (Image.Image): fitted image to use for test
-    n_top (int): Number of top values to return (default 3)
-
-  Return:
-    dict with four items:
-
-      - topI [ Indexes to top probabilities ], from argsort
-      - topP [ Top probabilities ]
-      - topL [ Top Labels ] or [] if labels=None
-      - topRes [ Top Labels and probabilities as formatted strings ] or [] if labels=None
-
-  """
-  topI, topP, topL, topRes = [0], [0.00], ["No Results"], ["No Results"]
-
-  try:
-    y = model.predict({in_name:img}, usesCPUOnly=True)
-
-  except Exception as e :
-    topRes[0] = f"No Results; Exception: {e}"
-    print('Exception:',e)
-
-  else:
-    pdict  = y[out_name]
-    prob   = np.array([v for v in pdict.values()])
-    labels = np.array([k for k in pdict.keys()])
-    topI   = np.argsort(prob)[:-(n_top+1):-1]
-    topP   = [prob[i] * 100 for i in topI],
-    topL   = [labels[i] for i in topI],
-    topRes = [f"{labels[i][:30]:32} {100 * prob[i]:.4g}" for i in topI]
-
-  return dict( topI=topI, topP=topP, topL=topL, topRes=topRes)
-
-
-def is_imgfile(f:upath)->bool:
+def is_imgfile(f:Upath)->bool:
   """True if the file ends in 'jpg' or 'png' """
   f = Path(f)
-  return f.is_file() and (f.suffix == '.jpg' or f.suffix == '.png')
+  return f.is_file() and f.suffix in ['.jpg','.png','jpeg']
 
 
-def _rand_imgs_fm_dir(dir_path: upath, n_images=40, limit=400) -> list:
+
+def _rand_imgs_fm_dir(dir_path: Upath, n_images=40, limit=400) -> list:
   """
   Return a list of image file names chosen randomly from `dir_path`.
 
@@ -927,8 +717,7 @@ def _rand_imgs_fm_dir(dir_path: upath, n_images=40, limit=400) -> list:
   imgs_in_dir = [f for i, f in zip(range(max_files), dir_path.iterdir()) if is_imgfile(f)]
   return random.sample(imgs_in_dir, min(len(imgs_in_dir), n_images))
 
-
-def get_rand_images(dir_path: upath, n_images=100, search_limit=400) -> list:
+def get_rand_images(dir_path: Upath, n_images=100, search_limit=400) -> list:
   """
   Return images (jpg and png) randomly sampled from child directories.
 
