@@ -16,7 +16,7 @@ Also,
 
   Use **Netron**
 
-In `coreml_help.py` you will find:
+In `coreml_help.py` and 'pred_help' you will find:
 
 The class "CoremlBrowser" methods for inspection and "model surgery"
 ```
