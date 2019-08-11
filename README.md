@@ -35,7 +35,7 @@ Once initialized, captures and keeps track of :
     cmb.layer_count # the count of nn layers
     cmb.shaper      # The shape inference object for this model
 
-###Convenience Functions
+### Convenience Functions
 ```
     show_nn          Show a summary of nn (Function equivalent of `show_nn` method)
     show_head
