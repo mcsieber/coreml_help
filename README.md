@@ -1,12 +1,11 @@
-Module coreml_help
-==================
+# Module coreml_help and pred_help
+
 Python helper functions to facilitate working with CoreML and ONNX and converting from one to the other.
 
 [Documentation](https://mcsieber.github.io/coreml_help)
 
 These functions depend on package `coremltools`. If you are converting between ONNX and CoreML,
 you will need `onnx_coreml`, `onnx`, and `onnxruntime` as well.
-
 
   If you want *real* help with CoreML, I highly recommend [**Matthijs Holleman's**](https://github.com/hollance)
   [*“Core ML Survival Guide.”*](https://leanpub.com/coreml-survival-guide) Informative and well-written.
@@ -16,23 +15,37 @@ Also,
 
   Use **Netron**
 
-In `coreml_help.py` and 'pred_help' you will find:
+## coreml_help.py
 
-The class "CoremlBrowser" methods for inspection and "model surgery"
+###  CoremlBrowser
+Class and methods for inspection and "model surgery"
 ```
     show_nn         Show a summary of neural network layers by index or name
     connect_layers  Connect the output of one layer to the input of another
     delete_layers   Delete CoreML NN layers by *name*.
     get_nn          Get the layers object for a CoreML neural network
 ```
-Convenience Functions
+Once initialized, captures and keeps track of :
+
+    cmb.spec        # The protobuf spec
+    cmb.nn          # The neural network object
+    cmb.layers      # The nn layers array
+    cmb.layer_shapes  # The shape dictionary for this model
+    cmb.layer_dict  # maps layer names to layer indexes
+    cmb.layer_count # the count of nn layers
+    cmb.shaper      # The shape inference object for this model
+
+###Convenience Functions
 ```
     show_nn          Show a summary of nn (Function equivalent of `show_nn` method)
     show_head
     show_tail        Convenience functions  of  method `show_nn`
     get_rand_images  Return images (jpg and png) randomly sampled from child dirs.
 ```
-Model Execution and Calculation Functions
+
+## pred_help
+
+### Model Execution and Calculation Functions
 ```
      norm_for_imagenet  Normalize using ImageNet values for mean and standard dev.
      pred_for_coreml    Run and show Predictions for a native CoreML model
@@ -40,11 +53,14 @@ Model Execution and Calculation Functions
      pred_for_o2c       Run and show Predictions for a CoreML model converted from ONNX
      softmax
 ```
-Use
+----
+## Use
 
   To use, initialize a browser instance using the '.mlmodel' file
 
-        from coreml_help import CoremlBrowser
+        from coreml_help import *
+        from pred_help import *
+
         cmb = CoremlBrowser(" ... a '.mlmodel' file " )
 
   Then the following are initialized:
@@ -52,6 +68,7 @@ Use
         cmb.spec        # The protobuf spec
         cmb.nn          # The neural network object
         cmb.layers      # The nn layers array
+        cmb.layer_shapes  # The shape dictionary for this model
         cmb.layer_dict  # maps layer names to layer indexes
         cmb.layer_count # the count of nn layers
         cmb.shaper      # The shape inference object for this model
