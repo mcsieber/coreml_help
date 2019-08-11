@@ -5,16 +5,15 @@ Standard Jupyter Notebook set up for host 'ariel' after project name is defined
 
 See "notebook_setup.py"
 """
-import re
 import sys
 
 _show_args = sys.argv[1:] # Capture whether to display anything once we are done
 
-# Check for case in which this script is run before importing 'ms_core'
+# Check for case in which this script is run before importing 'ms_util'
 
 if 'user_lib' not in globals():
   from pathlib import Path
-#  from ms_core import *
+  from ms_util import *
 
 # Check for case in which this script is run before defining the project and model names
 
@@ -37,7 +36,7 @@ if project_name is None:
 #   dir     = "ArielSV/Users/mcsieber/storage/lib" (is also a path, but not using it that way)
 #   name    = "usual_suspects.py", stub = "usual_suspects", suffix = ".py"
 #
-# Define these here (or re-define) if not set up by ms_config
+# Define these here (or re-define) if not set up by ms_config or notebook setup
 if 'data_root' not in globals():
   local_root  = Path('/Users/mcsieber/storage')  # On Paperspace would be just "/storage"
   data_root   = Path('/Volumes/ArielD/storage')  # On Paperspace would be just "/storage"
@@ -54,22 +53,8 @@ models_dir    = data_dir/project_name/'models'
 xprojects_dir = Path('/Users/mcsieber/dev/xprojects')
 # models        = models_path  # NO - conflicts w/ fastai - wasSynonym for models directory
 
-# Project Models (not all may be needed)
-fastai_stub   = model_name
-fastai_name   = Path(f"{model_name}.pth")
-fastai_path   = models_dir/fastai_name
-fastai_txt_path = fastai_path.as_posix()
-
-coreml_stub   = model_name
-coreml_name   = Path(f"{model_name}.mlmodel")
-coreml_path   = models_dir/coreml_name
-coreml_output = models_dir/Path(f"{coreml_stub}-ml-output.txt")
-
-onnx_stub     = model_name
-onnx_name     = Path(f"{model_name}.onnx")
-onnx_dir      = models_dir
-onnx_path     = models_dir/onnx_name
-onnx_txt_path = onnx_path.as_posix()
+# Path and model environment setup moved to individual files
+# See fastai_setup, coreml_setup, onnx_setup, etc ...
 
 # Other
 bs = batch_size  # Common Synonym
@@ -85,14 +70,8 @@ def _pt(name_str:str):
   names = split(r"[,\s]+",name_str)
   for name in names:
     if len(name)> 0:
-      try: print(f"{name:15} = {eval(name)}")
+      try: print(f"{name:15.15s} = {eval(name)}")
       except Exception as e: print(e)
-
-
-if re.search('darwin',sys.platform):
-  _pt('defaults')
-  print()
-
 
 Current_dir = Path.cwd()
 _sl = len(_show_args)
@@ -107,23 +86,18 @@ if 'None' not in _show_args :
     if 'all'   in sa : sa.extend(['proj','paths','env'])
 
     if 'proj'  in sa or 'project' in sa :
-        _pt('project_name  model_name  proj_dir  proj_data_dir  models_dir')
-        _pt('fastai.version.__version__  torch.version.__version__')
-        print()
+      show_names(globals(), 'data_','project_','proj_','model','_size')
+      print()
 
-    if 'paths' in sa :
-        _pt('coreml_name  coreml_path  coreml_output')
-        print()
-        _pt('onnx_name  onnx_dir  onnx_path')
-        print()
-        _pt('fastai_stub  fastai_name  fastai_path')
+    if 'paths' in sa  or 'path' in sa:
+      show_names(globals(),'_root','_dir','_path','_name')
 
     if 'env'   in sa :
-        print()
-        current_dir = Path.cwd()
-        _pt('Current_dir sys.platform sys.prefix sys.version ')
-        print()
-        _pt('sys.path')
+      print()
+      current_dir = Path.cwd()
+      _pt('Current_dir sys.platform sys.prefix sys.version ')
+      print()
+      _pt('sys.path')
 
 
 del _sl, _show_args, _pt,  Current_dir # Clean up namespace
