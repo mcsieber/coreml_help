@@ -1,9 +1,39 @@
+"""
+Functions to help with generation and display of predictions from
+CoreML, ONNX, and Torch models.
+
+TODO: Fix - too much repetitive code in "pred" functions.
+TODO: Move "show_result" and related into this module?
+      Create Class "DisplayResults" to encapsulate a lot of the share functions and data?
+"""
 
 from collections import namedtuple
+from enum import Enum,unique
 from ms_util import *
 
+""" 
+Formats and Data
+"""
+
+@unique
+
+class PredAxis(Enum):
+  IMG   = 0
+  MODEL = 1
+  PROB  = 2
+  IDX   = 2
+  RANK  = 3
+
+class PredPos(Enum):
+  IDX   = 0
+  PROB  = 1
+  LABEL = 2
+
 ImagePrediction = namedtuple('ImagePrediction', 'topI topP topL')
+""" Standardizes the format of predictions returned by various models. Used when comparing results."""
+
 ImageRepo  = namedtuple('ImageRepo' , 'mean std labels_url')
+""" Formats  normalization stats and URLs for various repositories"""
 
 ### Data, Data Sources
 
@@ -91,11 +121,14 @@ def norm_for_imagenet(img: Uimage) -> ndarray:
 Model Execution and ImagePrediction
 """
 
+def image_pred(topI=Uarray, topP=Uarray, topL=Uarray)->ndarray:
+  return ImagePrediction(topI=topI, topP=np.array(topP), topL=topL)
+
 _no_results = ([0], [0.00], ["No Results"])
 """ Default ImagePrediction values"""
 
 
-def pred_for_torch(model, img:Uimage, n_top:int=3, labels=None)->ImagePrediction:
+def pred_for_torch(model, img:Uimage, n_top:int=3, labels=None)->ndarray:
   """
   Run the Torch Classifier model return the top results.
 
@@ -144,10 +177,10 @@ def pred_for_torch(model, img:Uimage, n_top:int=3, labels=None)->ImagePrediction
     print(f"Exception from pred_for_torch(input={''}, output={''})")
     print(e)
 
-  return ImagePrediction(topI=topI, topP=topP, topL=topL)
+  return image_pred(topI=topI, topP=topP, topL=topL)
 
 
-def pred_for_onnx(sess, img:Uimage, n_top:int=3, labels=None)->ImagePrediction:
+def pred_for_onnx(sess, img:Uimage, n_top:int=3, labels=None)->ndarray:
   """
   Run the ONNX Classifier model and return the top results as a standardized *ImagePrediction*.
 
@@ -203,10 +236,10 @@ def pred_for_onnx(sess, img:Uimage, n_top:int=3, labels=None)->ImagePrediction:
     print(f"Exception from pred_for_onnx(input={input0_name}, output={output_name})")
     print(e)
 
-  return ImagePrediction(topI=topI, topP=topP, topL=topL)
+  return image_pred(topI=topI, topP=topP, topL=topL)
 
 
-def pred_for_o2c(model, img:Uimage, n_top:int=3, labels=None )->ImagePrediction:
+def pred_for_o2c(model, img:Uimage, n_top:int=3, labels=None )->ndarray:
   """
   Run a CoreML Classifier model that was converted from ONNX; return the top results as a standardized *ImagePrediction*.
 
@@ -258,11 +291,11 @@ def pred_for_o2c(model, img:Uimage, n_top:int=3, labels=None )->ImagePrediction:
     print(f"Exception from pred_for_o2c(input={in_name}, output={out_name})")
     print(e)
 
-  pred = ImagePrediction(topI=topI, topP=topP, topL=topL)
+  pred = image_pred(topI=topI, topP=topP, topL=topL)
   return pred
 
 
-def pred_for_coreml(model, img:Uimage, n_top:int=3 )->ImagePrediction:
+def pred_for_coreml(model, img:Uimage, n_top:int=3 )->ndarray:
   """
   Run a native CoreML Classifier and return the top results as a standardized *ImagePrediction*.
 
@@ -279,9 +312,11 @@ def pred_for_coreml(model, img:Uimage, n_top:int=3 )->ImagePrediction:
       - topP [ Top probabilities ]
       - topL [ Top Labels ]
 
+  If you want to run a CoreML model **converted** from ONNX, use `pred_for_o2c`
   """
 
   topI, topP, topL = _no_results
+  in_name, out_name = None, None
 
   try:
 
@@ -292,10 +327,10 @@ def pred_for_coreml(model, img:Uimage, n_top:int=3 )->ImagePrediction:
     y       = model.predict({in_name:img}, useCPUOnly=True)
 
     pdict   = y[out_name]
-    prob    = np.array([v for v in pdict.values()])
-    labels  = np.array([k for k in pdict.keys()])
+    prob    = [v for v in pdict.values()]
+    labels  = [k for k in pdict.keys()]
     topI    = np.argsort(prob)[:-(n_top+1):-1]
-    topP    = [prob[i]   for i in topI]
+    topP    = np.array([prob[i]  for i in topI])
     topL    = [labels[i] for i in topI]
 
   except Exception as e :
@@ -303,10 +338,15 @@ def pred_for_coreml(model, img:Uimage, n_top:int=3 )->ImagePrediction:
     print(f"Exception from pred_for_coreml(input={in_name}, output={out_name})")
     print(e)
 
-  return ImagePrediction(topI=topI, topP=topP, topL=topL)
+  return image_pred(topI=topI, topP=topP, topL=topL)
 
 
-def fmt_label(label: str) -> str:
+"""
+Functions to display prediction results along side the image
+"""
+
+def _fmt_imagenet_label(label: str) -> str:
+  """Reverse the order of id and name, so that name comes first"""
   import re
   if re.search("n\d+ ", label):
     t1, t2 = re.split(' ', label, maxsplit=1)
@@ -314,7 +354,7 @@ def fmt_label(label: str) -> str:
   return label
 
 
-def fmt_results(pred: ImagePrediction, n_2show:int=1)->str:
+def _fmt_results(pred:ImagePrediction, n_2show:int=1)->str:
   """
   Return a formatted string for all results in the ImagePrediction tuple
 
@@ -327,26 +367,32 @@ def fmt_results(pred: ImagePrediction, n_2show:int=1)->str:
   Example:
     '46.05%  Eagle '
   """
+
   results = ''
+
   for i in range(n_2show):
-    l = fmt_label(pred.topL[i])
+    l = _fmt_imagenet_label(pred.topL[i])
     p = pred.topP[i]
-    results += f"  {p:03.02%} {l}\n"
+    results += f"  {p:003.02%} {l}\n"
   return results
 
 
 def add_pred(axs, x:int, y:int,  pred:ImagePrediction, model_id='Model', n_2show=1,
              fontsize=12, fontfamily='monospace'):
   """
-  Add a Prediction to an existing axs.  This is used to show additional model results for an image.
+  Add a Prediction to an existing axs. Call after "show_pred" to show additional model results for an image.
   Args:
-    img_path ():
+    axs ():
+    x ():
+    y ():
     pred ():
     model_id ():
     fontsize ():
 
   Returns:
     axs: The axs passed in.
+
+  Note: The call to show_pred should set 'immediate=False". Use plt.show() to display.
   """
 
   indent      = 20
@@ -360,26 +406,33 @@ def add_pred(axs, x:int, y:int,  pred:ImagePrediction, model_id='Model', n_2show
   axs.text(x+indent, y, model_id, fontsize=fontsize, fontfamily=fontfamily)
 
   # The prediction results
-  y = y + (n_2show)*y_per_line
-  axs.text(x + results_indent, y, fmt_results(pred,n_2show=n_2show), fontsize=fontsize, fontfamily=fontfamily)
+  y = y + n_2show*y_per_line
+  axs.text(x + results_indent, y, _fmt_results(pred,n_2show=n_2show), fontsize=fontsize, fontfamily=fontfamily)
 
   return x, y
 
 
 def show_pred(img_path:Upath, pred:ImagePrediction, model_id=None, n_2show=2, immediate=True,
-              img_size=(224,224), fontsize=12, fontfamily='monospace', fig_size=(2.5,4) ):
+              img:Image=None, img_size=(224,224), fontsize=12, fontfamily='monospace', fig_size=(2.5,4) ):
   """
   Show the image and predictions.
 
     Args:
       img_path(Upath): The path to the image
-      pred(ImagePrediction): The prediction named tuple
+      pred(ImagePrediction): The prediction named tuple containing top argmax indexes and probs and labels.
       model_id(str): Display the (user-assigned) model identifier
+      img(Image): Image to use (optional, if not passed, image is read from 'img_path')
+      n_2show(int): How many of the top results to show for each prediction.
       fontsize(int): The fontsize
       fontfamily(str): The font family
+      immediate(bool):
+        Set to True to display immediately after show_pred call
+        Set to False to allow additional "add_pred" calls before displaying.  Use plt.show() to display when complete
 
     Returns:
-       axs object from plt.subplot call or
+       axs: object from plt.subplot call
+       x:   x position
+       y:   y position
        None if there are no predictions
   """
 
@@ -395,20 +448,141 @@ def show_pred(img_path:Upath, pred:ImagePrediction, model_id=None, n_2show=2, im
     print(f"No predictions for {img_path.name}; pred={pred}")
     return None
 
-  # The image
-  fimg     = ImageOps.fit(Image.open(img_path), size=img_size, method=Image.BICUBIC, centering=(0.5, 0.4))
+  # The image - show without frame or ticks
+  if img is None : img = Image.open(img_path)
+  fimg     = ImageOps.fit(img, size=img_size, method=Image.NEAREST, centering=(0.5, 0.4))
   fig, axs = plt.subplots(1, 1, figsize=fig_size, subplot_kw=dict(frame_on=False, xticks=[], yticks=[]))
   axs.imshow(fimg)
 
   # The image file name
   x = img_size[0]+indent-4
   y = y_start
-  axs.text(x, y, img_path.name, fontsize=fontsize+2, fontfamily=fontfamily)
+  axs.text(x, y, img_path.name, fontsize=fontsize, fontfamily=fontfamily)
 
   # The model and results -
   x = x + indent
   y = y + y_per_line + 2
   x, y = add_pred(axs, x, y, pred, model_id=model_id, n_2show=n_2show, fontsize=fontsize, fontfamily=fontfamily)
 
-  if immediate : plt.show()
+  if immediate : plt.show() #  => no more calls to "add_pred" for this image.
   return axs, x, y
+
+
+import matplotlib
+import matplotlib.pyplot as plt
+
+
+def heatmap(data, row_labels, col_labels, ax=None,
+            cbar_kw:dict={}, cbarlabel="", **kwargs):
+    """
+    Create a heatmap from a numpy array and two lists of labels.
+
+    Parameters
+    ----------
+    data
+        A 2D numpy array of shape (N, M).
+    row_labels
+        A list or array of length N with the labels for the rows.
+    col_labels
+        A list or array of length M with the labels for the columns.
+    ax
+        A `matplotlib.axes.Axes` instance to which the heatmap is plotted.  If
+        not provided, use current axes or create a new one.  Optional.
+    cbar_kw
+        A dictionary with arguments to `matplotlib.Figure.colorbar`.  Optional.
+    cbarlabel
+        The label for the colorbar.  Optional.
+    **kwargs
+        All other arguments are forwarded to `imshow`.
+    """
+
+    if not ax: ax = plt.gca()
+
+    # Plot the heatmap
+    im = ax.imshow(data, **kwargs)
+
+    # Create colorbar
+    cbar = ax.figure.colorbar(im, ax=ax, **cbar_kw)
+    cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
+
+    # We want to show all ticks...
+    ax.set_xticks(np.arange(data.shape[1]))
+    ax.set_yticks(np.arange(data.shape[0]))
+
+    # ... and label them with the respective list entries.
+    ax.set_xticklabels(col_labels)
+    ax.set_yticklabels(row_labels)
+
+    # Let the horizontal axes labeling appear on top.
+    ax.tick_params(top=True, bottom=False,
+                   labeltop=True, labelbottom=False)
+
+    # Rotate the tick labels and set their alignment.
+    plt.setp(ax.get_xticklabels(), rotation=-30, ha="right",
+             rotation_mode="anchor")
+
+    # Turn spines off and create white grid.
+    for edge, spine in ax.spines.items():
+        spine.set_visible(False)
+
+    ax.set_xticks(np.arange(data.shape[1]+1)-.5, minor=True)
+    ax.set_yticks(np.arange(data.shape[0]+1)-.5, minor=True)
+    ax.grid(which="minor", color="w", linestyle='-', linewidth=3)
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    return im, cbar
+
+
+def annotate_heatmap(im, data=None, valfmt="{x:.2f}",
+                     textcolors=["black", "white"],
+                     threshold=None, **textkw):
+    """
+    A function to annotate a heatmap.
+
+    Args:
+      im:
+          The AxesImage to be labeled.
+      data:
+          Data used to annotate.  If None, the image's data is used.  Optional.
+      valfmt:
+          The format of the annotations inside the heatmap.  This should either
+          use the string format method, e.g. "$ {x:.2f}", or be a
+          `matplotlib.ticker.Formatter`.  Optional.
+      textcolors:
+          A list or array of two color specifications.  The first is used for
+          values below a threshold, the second for those above.  Optional.
+      threshold:
+          Value in data units according to which the colors from textcolors are
+          applied.  If None (the default) uses the middle of the colormap as
+          separation.  Optional.
+      **kwargs:
+          All other arguments are forwarded to each call to `text` used to create
+          the text labels.
+    """
+
+    if not isinstance(data, (list, np.ndarray)): data = im.get_array()
+
+    # Normalize the threshold to the images color range.
+    threshold = im.norm(data.max())/2. if threshold is None else im.norm(threshold)
+
+    # Set default alignment to center, but allow it to be overwritten by textkw.
+    kw = dict(horizontalalignment="center",
+              verticalalignment="center")
+    kw.update(textkw)
+
+    # Get the formatter in case a string is supplied
+
+    if isinstance(valfmt, str):
+        valfmt = matplotlib.ticker.StrMethodFormatter(valfmt)
+
+    # Loop over the data and create a `Text` for each "pixel".
+    # Change the text's color depending on the data.
+    texts = []
+    for i in range(data.shape[0]):
+        for j in range(data.shape[1]):
+            kw.update(color=textcolors[int(im.norm(data[i, j]) > threshold)])
+            text = im.axes.text(j, i, valfmt(data[i, j], None), **kw)
+            texts.append(text)
+
+    return texts
+
