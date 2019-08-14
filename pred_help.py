@@ -6,34 +6,37 @@ TODO: Fix - too much repetitive code in "pred" functions.
 TODO: Move "show_result" and related into this module?
       Create Class "DisplayResults" to encapsulate a lot of the share functions and data?
 """
-
 from collections import namedtuple
-from enum import Enum,unique
+#from enum import Enum,unique
 from ms_util import *
+import matplotlib
+from matplotlib import pyplot as plt
+from PIL import Image, ImageOps
 
 """ 
 Formats and Data
 """
-
-@unique
-
-class PredAxis(Enum):
-  IMG   = 0
-  MODEL = 1
-  PROB  = 2
-  IDX   = 2
-  RANK  = 3
-
-class PredPos(Enum):
-  IDX   = 0
-  PROB  = 1
-  LABEL = 2
+# @unique
+# class PredAxis(Enum):
+#   IMG   = 0
+#   MODEL = 1
+#   PROB  = 2
+#   IDX   = 2
+#   RANK  = 3
+#
+# class PredPos(Enum):
+#   IDX   = 0
+#   PROB  = 1
+#   LABEL = 2
 
 ImagePrediction = namedtuple('ImagePrediction', 'topI topP topL')
 """ Standardizes the format of predictions returned by various models. Used when comparing results."""
 
 ImageRepo  = namedtuple('ImageRepo' , 'mean std labels_url')
 """ Formats  normalization stats and URLs for various repositories"""
+
+PredParams = namedtuple('PredParams','func runtime imgsize labels')
+""" Specifies prediction params for a model"""
 
 ### Data, Data Sources
 
@@ -43,6 +46,127 @@ imagenet = ImageRepo( mean   = [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225]
 cifar    = ImageRepo( mean = [0.491, 0.482, 0.447], std=[0.247, 0.243, 0.261], labels_url=None)
 
 mnist    = ImageRepo( mean = [0.15]*3, std  = [0.15]*3, labels_url=None)
+
+#_resize_method = Image.NEAREST
+
+def if_None(x,default): return x if x is not None else default
+
+
+def heatmap(data, row_labels, col_labels, ax=None,
+            cbar_kw: dict = {}, cbarlabel="", **kwargs):
+  """
+  Create a heatmap from a numpy array and two lists of labels.
+
+  Parameters
+  ----------
+  data
+      A 2D numpy array of shape (N, M).
+  row_labels
+      A list or array of length N with the labels for the rows.
+  col_labels
+      A list or array of length M with the labels for the columns.
+  ax
+      A `matplotlib.axes.Axes` instance to which the heatmap is plotted.  If
+      not provided, use current axes or create a new one.  Optional.
+  cbar_kw
+      A dictionary with arguments to `matplotlib.Figure.colorbar`.  Optional.
+  cbarlabel
+      The label for the colorbar.  Optional.
+  **kwargs
+      All other arguments are forwarded to `imshow`.
+  """
+
+  if not ax: ax = plt.gca()
+
+  # Plot the heatmap
+  im = ax.imshow(data, **kwargs)
+
+  # Create colorbar
+  # cbar = ax.figure.colorbar(im, ax=ax, **cbar_kw)
+  # cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
+  cbar = None
+
+  # We want to show all ticks...
+  ax.set_xticks(np.arange(data.shape[1]))
+  ax.set_yticks(np.arange(data.shape[0]))
+
+  # ... and label them with the respective list entries.
+  ax.set_xticklabels(col_labels)
+  ax.set_yticklabels(row_labels)
+
+  # Let the horizontal axes labeling appear on top.
+  ax.tick_params(top=True, bottom=False,
+                 labeltop=True, labelbottom=False)
+
+  # Rotate the tick labels and set their alignment.
+  plt.setp(ax.get_xticklabels(), rotation=-30, ha="right",
+           rotation_mode="anchor")
+
+  # Turn spines off and create white grid.
+  for edge, spine in ax.spines.items():
+    spine.set_visible(False)
+
+  ax.set_xticks(np.arange(data.shape[1] + 1) - .5, minor=True)
+  ax.set_yticks(np.arange(data.shape[0] + 1) - .5, minor=True)
+  ax.grid(which="minor", color="w", linestyle='-', linewidth=3)
+  ax.tick_params(which="minor", bottom=False, left=False)
+
+  return im, cbar
+
+
+def annotate_heatmap(im, data=None, valfmt="{x:.2f}",
+                     textcolors=["black", "white"],
+                     threshold=None, **textkw):
+  """
+  A function to annotate a heatmap.
+
+  Args:
+    im:
+        The AxesImage to be labeled.
+    data:
+        Data used to annotate.  If None, the image's data is used.  Optional.
+    valfmt:
+        The format of the annotations inside the heatmap.  This should either
+        use the string format method, e.g. "$ {x:.2f}", or be a
+        `matplotlib.ticker.Formatter`.  Optional.
+    textcolors:
+        A list or array of two color specifications.  The first is used for
+        values below a threshold, the second for those above.  Optional.
+    threshold:
+        Value in data units according to which the colors from textcolors are
+        applied.  If None (the default) uses the middle of the colormap as
+        separation.  Optional.
+    **kwargs:
+        All other arguments are forwarded to each call to `text` used to create
+        the text labels.
+  """
+
+  if not isinstance(data, (list, np.ndarray)): data = im.get_array()
+
+  # Normalize the threshold to the images color range.
+  threshold = im.norm(data.max()) / 2. if threshold is None else im.norm(threshold)
+
+  # Set default alignment to center, but allow it to be overwritten by textkw.
+  kw = dict(horizontalalignment="center",
+            verticalalignment="center")
+  kw.update(textkw)
+
+  # Get the formatter in case a string is supplied
+
+  if isinstance(valfmt, str):
+    valfmt = matplotlib.ticker.StrMethodFormatter(valfmt)
+
+  # Loop over the data and create a `Text` for each "pixel".
+  # Change the text's color depending on the data.
+  texts = []
+  for i in range(data.shape[0]):
+    for j in range(data.shape[1]):
+      kw.update(color=textcolors[int(im.norm(data[i, j]) > threshold)])
+      text = im.axes.text(j, i, valfmt(data[i, j], None), **kw)
+      texts.append(text)
+
+  return texts
+
 
 """ 
 Layer Calculations
@@ -121,14 +245,14 @@ def norm_for_imagenet(img: Uimage) -> ndarray:
 Model Execution and ImagePrediction
 """
 
-def image_pred(topI=Uarray, topP=Uarray, topL=Uarray)->ndarray:
+def image_pred(topI=Uarray, topP=Uarray, topL=Uarray)->ImagePrediction:
   return ImagePrediction(topI=topI, topP=np.array(topP), topL=topL)
 
 _no_results = ([0], [0.00], ["No Results"])
 """ Default ImagePrediction values"""
 
 
-def pred_for_torch(model, img:Uimage, n_top:int=3, labels=None)->ndarray:
+def pred_for_torch(model, img:Uimage, labels=None, n_top:int=3, )->ImagePrediction:
   """
   Run the Torch Classifier model return the top results.
 
@@ -180,7 +304,7 @@ def pred_for_torch(model, img:Uimage, n_top:int=3, labels=None)->ndarray:
   return image_pred(topI=topI, topP=topP, topL=topL)
 
 
-def pred_for_onnx(sess, img:Uimage, n_top:int=3, labels=None)->ndarray:
+def pred_for_onnx(sess, img:Uimage,labels=None, n_top:int=3 )->ImagePrediction:
   """
   Run the ONNX Classifier model and return the top results as a standardized *ImagePrediction*.
 
@@ -239,7 +363,7 @@ def pred_for_onnx(sess, img:Uimage, n_top:int=3, labels=None)->ndarray:
   return image_pred(topI=topI, topP=topP, topL=topL)
 
 
-def pred_for_o2c(model, img:Uimage, n_top:int=3, labels=None )->ndarray:
+def pred_for_o2c(model, img:Uimage,  labels=None, n_top:int=3 )->ImagePrediction:
   """
   Run a CoreML Classifier model that was converted from ONNX; return the top results as a standardized *ImagePrediction*.
 
@@ -263,6 +387,7 @@ def pred_for_o2c(model, img:Uimage, n_top:int=3, labels=None )->ndarray:
   """
 
   topI, topP, topL = _no_results
+  in_name,  out_name = None, None
 
   try:
 
@@ -295,7 +420,7 @@ def pred_for_o2c(model, img:Uimage, n_top:int=3, labels=None )->ndarray:
   return pred
 
 
-def pred_for_coreml(model, img:Uimage, n_top:int=3 )->ndarray:
+def pred_for_coreml(model, img:Uimage, labels=None, n_top:int=3 )->ImagePrediction:
   """
   Run a native CoreML Classifier and return the top results as a standardized *ImagePrediction*.
 
@@ -303,8 +428,6 @@ def pred_for_coreml(model, img:Uimage, n_top:int=3 )->ndarray:
     model (object) : the coreml model to use for the prediction
     img (Image.Image): fitted image to use for test
     n_top (int): Number of top values to return (default 3)
-    in_name (str): Starting Input Layer name
-    out_name (str): Final Output Layer name
 
   Return:
     'ImagePrediction' named tuple with three items:
@@ -341,20 +464,19 @@ def pred_for_coreml(model, img:Uimage, n_top:int=3 )->ndarray:
   return image_pred(topI=topI, topP=topP, topL=topL)
 
 
-"""
-Functions to display prediction results along side the image
-"""
 
-def _fmt_imagenet_label(label: str) -> str:
+def _fmt_imagenet_label( label: str) -> str:
   """Reverse the order of id and name, so that name comes first"""
   import re
   if re.search("n\d+ ", label):
     t1, t2 = re.split(' ', label, maxsplit=1)
-    label = f"{t2} ({t1})"
-  return label
+    t1 = f"({t1})"
+  else:
+    t1, t2 = '', label
+  return f"{t2:16.24s} {t1}"
 
 
-def _fmt_results(pred:ImagePrediction, n_2show:int=1)->str:
+def _fmt_results(pred: ImagePrediction, n2show=2) -> str:
   """
   Return a formatted string for all results in the ImagePrediction tuple
 
@@ -367,222 +489,379 @@ def _fmt_results(pred:ImagePrediction, n_2show:int=1)->str:
   Example:
     '46.05%  Eagle '
   """
-
   results = ''
-
-  for i in range(n_2show):
+  for i in range(n2show):
     l = _fmt_imagenet_label(pred.topL[i])
     p = pred.topP[i]
-    results += f"  {p:003.02%} {l}\n"
+    results += f"  {p:06.02%} {l}\n"
   return results
 
 
-def add_pred(axs, x:int, y:int,  pred:ImagePrediction, model_id='Model', n_2show=1,
-             fontsize=12, fontfamily='monospace'):
-  """
-  Add a Prediction to an existing axs. Call after "show_pred" to show additional model results for an image.
-  Args:
-    axs ():
-    x ():
-    y ():
-    pred ():
-    model_id ():
-    fontsize ():
+def show_pred(img_path: Upath, pred: ImagePrediction, model_id="Model",
+              pred2show=3, figsize=(2.0, 3.5), img_size=(200, 200),
+              fontsize=12, fontfamily='monospace'):
 
-  Returns:
-    axs: The axs passed in.
+  def add_text(x,y,txt):
+    ax.text(x, y, txt, verticalalignment='top', fontsize=fontsize, fontfamily=fontfamily)
 
-  Note: The call to show_pred should set 'immediate=False". Use plt.show() to display.
-  """
+  img_path  = Path(img_path)
+  indent    = 20
+  y_start   = 4
+  y_per_line= int(1.9 * fontsize) + 2
 
-  indent      = 20
-  y_per_line  = int(1.9*fontsize)
+  # Show the image  without frame or ticks
+  _, ax = plt.subplots(1, 1, figsize=figsize, subplot_kw=dict(frame_on=False, xticks=[], yticks=[]))
+  ax.imshow( ImageOps.fit(Image.open(img_path), size=img_size, method=Image.NEAREST) )
+
+  # Show the image file name
+  x = img_size[0] + indent
+  y = y_start
+  add_text(x, y, img_path.name)
+
+  # Show the model abbr.
+  x += indent
+  y += y_per_line
+  add_text(x, y, model_id)
+
+  # Show the prediction probabilities
+  y += y_per_line
+  add_text(x, y, _fmt_results(pred, n2show=pred2show))
+
+  plt.show()
+
+
+
+
   #
-  y_between_models = fontsize//2
-  results_indent   = 5*fontsize
 
-  # The model id
-  y = y+y_between_models
-  axs.text(x+indent, y, model_id, fontsize=fontsize, fontfamily=fontfamily)
+# def preds_result(img_path: Upath, pred_dict: dict) -> dict:
+#   """ Get all predictions for one image and return them in result item dict"""
+#
+#   # Fix RGBA images (or others) on the fly, if possible ...
+#   img = Image.open(img_path)
+#   if img.mode != 'RGB':
+#     print(f'Converting {img.name} to RGB from {img.mode} ')
+#     img = img.convert('RGB')
+#
+#   # Some of the models are picky about the image size ...
+#   img_sized = { 224 : ImageOps.fit(img, (224, 224), method=_resize_method, centering=(0.5, 0.4) ),
+#                 300 : ImageOps.fit(img, (300, 300), method=_resize_method, centering=(0.5, 0.4) ) }
+#
+#   # Create result item for this image using the prediction dictionary
+#   res = { 'name': img.name, 'path':img_path}
+#   for model, pred in pred_dict:
+#     res[model] = pred.func(pred.runtime, img_sized[pred.imgsize], pred.labels)
+#
+#   return res
+  
+class Classifier:
 
-  # The prediction results
-  y = y + n_2show*y_per_line
-  axs.text(x + results_indent, y, _fmt_results(pred,n_2show=n_2show), fontsize=fontsize, fontfamily=fontfamily)
-
-  return x, y
-
-
-def show_pred(img_path:Upath, pred:ImagePrediction, model_id=None, n_2show=2, immediate=True,
-              img:Image=None, img_size=(224,224), fontsize=12, fontfamily='monospace', fig_size=(2.5,4) ):
-  """
-  Show the image and predictions.
-
+  def __init__(self, params:dict, top_count=3, num_images=8, resize_method=Image.NEAREST):
+    self.pred_params  = params
+    self.model_list = [m for m in self.pred_params.keys() ]
+    self.model_dict = {m:i for i,m in enumerate(self.model_list)}
+    self.num_models = len(self.model_list)
+    self.num_imgs   = num_images
+    self.resize_method = resize_method
+    self.top_count  = top_count
+    self.top_probs  = None
+    self.top_classes= None
+    self.results    = None
+    self.stat_int   = None
+        
+        
+  def i2m(self,i:int)->str: return self.model_list[i]    
+  def m2i(self,m:str)->int: return self.model_dict[m]
+  
+        
+  def classify(self, imgs:list, top_count=None)->list:
+    """
+    Generate predictions for each of the images, by model
+    
     Args:
-      img_path(Upath): The path to the image
-      pred(ImagePrediction): The prediction named tuple containing top argmax indexes and probs and labels.
-      model_id(str): Display the (user-assigned) model identifier
-      img(Image): Image to use (optional, if not passed, image is read from 'img_path')
-      n_2show(int): How many of the top results to show for each prediction.
+      imgs (list):
+        List of image file paths.
+        Updates the value of `num_images` in the Classifier
+      top_count (int):
+        Reset how many predictions to keep for each img and model.
+        If None, use the value already set in the Classifier.
+        If set, updates the value saved in the Classifier
+        
+    Returns:
+      In the Classifier it allocated and populates the results list,
+        the top_probs ndarray, and the top_classes ndarray.
+        Returns the results list. 
+
+    """
+    # Generate values, allocate arrays
+    self.num_imgs    = len(imgs)
+    self.stat_int    = max(16,int(self.num_imgs/4))
+    self.top_probs   = np.empty((self.num_models, self.num_imgs, self.top_count), dtype=float)
+    self.top_classes = np.empty((self.num_models, self.num_imgs, self.top_count), dtype=int)
+    self.results     = [self.pred_params] * self.num_imgs
+    if top_count is not None: self.top_count = top_count
+    
+    # Get predictions for each image, save results
+    # Save copies of class indexes and probabilities for later calculation
+    
+    for i, img_path in enumerate(imgs):
+        self.results[i] = self.preds_for(img_path)
+        
+        for im, model in enumerate(self.model_list): 
+            model_result = self.results[i][model]
+            self.top_classes[im][i] = np.array(model_result.topI)
+            self.top_probs[im][i]   = np.array(model_result.topP)
+            
+        if (i%self.stat_int) == 0 : 
+            print(f"{i} of {self.num_imgs} processed, most recent is {img_path.name}")
+
+    print(f"Total of {self.num_imgs} images processed")
+    return self.results
+
+  def preds_for(self, img_path: Upath) -> dict:
+    """
+     Get all predictions for one image and return them in result item dict
+    Args:
+      img_path (Upath): Path to the image
+      
+    Uses: 
+      `pred_dict` from Classifier
+      
+    Returns:
+      A return item. A dictionary with name, path, and 
+        `top_count` class, probability and label predictions for each of the models.
+    """
+    # Open image, fix RGBA images (or others) on the fly, if possible ...
+    img_path = Path(img_path)
+    img = Image.open(img_path)
+    if img.mode != 'RGB':
+      print(f'Converting {img_path.name} to RGB from {img.mode} ')
+    img = img.convert('RGB')
+    
+    # Some of the models are picky about the image size ...
+    mid_top  = (0.5, 0.4)
+    resize  = self.resize_method
+    img_sized= {
+        224 : ImageOps.fit(img,(224,224), centering=mid_top, method=resize, ),
+        300 : ImageOps.fit(img,(300,300), centering=mid_top, method=resize, ),
+    }
+    # Create result item for this image using the prediction dictionary
+    topn = self.top_count
+    result_item = { 'name': img_path.name, 'path':img_path }
+    for mname, pred_params in self.pred_params.items():
+        pred_for = pred_params.func
+        model  = pred_params.runtime
+        img    = img_sized[pred_params.imgsize]
+        labels = pred_params.labels
+        result_item[mname] = pred_for(model, img, labels, topn )
+
+    return result_item
+
+
+class Results:
+  """
+  Results
+  """
+  def __init__(self, predictions:Classifier, pred2show:int=2, figsize=(3.0,3.5),
+                     cols=1, imgsize=(224,224), fontsize=12, fontfamily='monospace'):
+    """
+    Args:
+      self ():
+      predictions(Classifier):
+      pred2show(int):
       fontsize(int): The fontsize
       fontfamily(str): The font family
-      immediate(bool):
-        Set to True to display immediately after show_pred call
-        Set to False to allow additional "add_pred" calls before displaying.  Use plt.show() to display when complete
 
     Returns:
-       axs: object from plt.subplot call
-       x:   x position
-       y:   y position
-       None if there are no predictions
+      DisplayResults Object
+
+    """
+    super()
+    self.resize_method = predictions.resize_method
+    self.model_list = predictions.model_list
+    self.results    = predictions.results
+    self.results_len = len(self.results)
+    self.fontsize   = fontsize
+    self.fontfamily = fontfamily
+    self.figsize    = figsize
+    self.imgsize    = imgsize
+    self.cols       = cols
+    self.pred2show  = pred2show
+    self.model_id = None
+    self.ax = None
+    self.x = 0
+    self.y = 0
+
+  """
+  Functions to display prediction results along side the image
   """
 
-  from matplotlib import pyplot as plt
-  from PIL import Image, ImageOps
 
-  y_start    = 4
-  y_per_line = int(1.9*fontsize)
-  indent     = 20
-  img_path   = Path(img_path)
-
-  if pred.topP[0] == 0.00 :
-    print(f"No predictions for {img_path.name}; pred={pred}")
-    return None
-
-  # The image - show without frame or ticks
-  if img is None : img = Image.open(img_path)
-  fimg     = ImageOps.fit(img, size=img_size, method=Image.NEAREST, centering=(0.5, 0.4))
-  fig, axs = plt.subplots(1, 1, figsize=fig_size, subplot_kw=dict(frame_on=False, xticks=[], yticks=[]))
-  axs.imshow(fimg)
-
-  # The image file name
-  x = img_size[0]+indent-4
-  y = y_start
-  axs.text(x, y, img_path.name, fontsize=fontsize, fontfamily=fontfamily)
-
-  # The model and results -
-  x = x + indent
-  y = y + y_per_line + 2
-  x, y = add_pred(axs, x, y, pred, model_id=model_id, n_2show=n_2show, fontsize=fontsize, fontfamily=fontfamily)
-
-  if immediate : plt.show() #  => no more calls to "add_pred" for this image.
-  return axs, x, y
-
-
-import matplotlib
-import matplotlib.pyplot as plt
-
-
-def heatmap(data, row_labels, col_labels, ax=None,
-            cbar_kw:dict={}, cbarlabel="", **kwargs):
+  def add_pred(self, pred:ImagePrediction, model_id:str=None, n2show=2,
+                     x:int=None, y:int=None):
     """
-    Create a heatmap from a numpy array and two lists of labels.
-
-    Parameters
-    ----------
-    data
-        A 2D numpy array of shape (N, M).
-    row_labels
-        A list or array of length N with the labels for the rows.
-    col_labels
-        A list or array of length M with the labels for the columns.
-    ax
-        A `matplotlib.axes.Axes` instance to which the heatmap is plotted.  If
-        not provided, use current axes or create a new one.  Optional.
-    cbar_kw
-        A dictionary with arguments to `matplotlib.Figure.colorbar`.  Optional.
-    cbarlabel
-        The label for the colorbar.  Optional.
-    **kwargs
-        All other arguments are forwarded to `imshow`.
-    """
-
-    if not ax: ax = plt.gca()
-
-    # Plot the heatmap
-    im = ax.imshow(data, **kwargs)
-
-    # Create colorbar
-    cbar = ax.figure.colorbar(im, ax=ax, **cbar_kw)
-    cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
-
-    # We want to show all ticks...
-    ax.set_xticks(np.arange(data.shape[1]))
-    ax.set_yticks(np.arange(data.shape[0]))
-
-    # ... and label them with the respective list entries.
-    ax.set_xticklabels(col_labels)
-    ax.set_yticklabels(row_labels)
-
-    # Let the horizontal axes labeling appear on top.
-    ax.tick_params(top=True, bottom=False,
-                   labeltop=True, labelbottom=False)
-
-    # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=-30, ha="right",
-             rotation_mode="anchor")
-
-    # Turn spines off and create white grid.
-    for edge, spine in ax.spines.items():
-        spine.set_visible(False)
-
-    ax.set_xticks(np.arange(data.shape[1]+1)-.5, minor=True)
-    ax.set_yticks(np.arange(data.shape[0]+1)-.5, minor=True)
-    ax.grid(which="minor", color="w", linestyle='-', linewidth=3)
-    ax.tick_params(which="minor", bottom=False, left=False)
-
-    return im, cbar
-
-
-def annotate_heatmap(im, data=None, valfmt="{x:.2f}",
-                     textcolors=["black", "white"],
-                     threshold=None, **textkw):
-    """
-    A function to annotate a heatmap.
-
+    Add a Prediction to an existing axs. Call after "show_pred" to show additional model results for an image.
     Args:
-      im:
-          The AxesImage to be labeled.
-      data:
-          Data used to annotate.  If None, the image's data is used.  Optional.
-      valfmt:
-          The format of the annotations inside the heatmap.  This should either
-          use the string format method, e.g. "$ {x:.2f}", or be a
-          `matplotlib.ticker.Formatter`.  Optional.
-      textcolors:
-          A list or array of two color specifications.  The first is used for
-          values below a threshold, the second for those above.  Optional.
-      threshold:
-          Value in data units according to which the colors from textcolors are
-          applied.  If None (the default) uses the middle of the colormap as
-          separation.  Optional.
-      **kwargs:
-          All other arguments are forwarded to each call to `text` used to create
-          the text labels.
+      pred (ImagePrediction):
+      model_id (str):
+      n2show (int):
+      x (int):
+      y (int):
+
+    Returns:
+      current value of x,y coordinates (x,y is also saved in DisplayResults object)
     """
 
-    if not isinstance(data, (list, np.ndarray)): data = im.get_array()
+    ax = self.ax
+    x  = if_None(x,self.x)
+    y  = if_None(y,self.y)
+    model  = if_None(model_id, self.model_id)
+    fontsize = self.fontsize
 
-    # Normalize the threshold to the images color range.
-    threshold = im.norm(data.max())/2. if threshold is None else im.norm(threshold)
+    name_indent      = 10
+    y_per_line  = int(1.9 * fontsize)+2
+    y_between   = fontsize // 3
+    results_indent  = name_indent + int(4* fontsize)
 
-    # Set default alignment to center, but allow it to be overwritten by textkw.
-    kw = dict(horizontalalignment="center",
-              verticalalignment="center")
-    kw.update(textkw)
+    # Show the model short name
+    y +=  y_between
+    ax.text(x + name_indent, y, model, verticalalignment='top',
+            fontsize=self.fontsize, fontfamily=self.fontfamily)
 
-    # Get the formatter in case a string is supplied
+    # Show the prediction results
+    ax.text(x + results_indent, y, _fmt_results(pred, n2show=n2show),
+             verticalalignment='top', fontsize=self.fontsize, fontfamily=self.fontfamily)
+    self.x = x
+    self.y = y + n2show * y_per_line
+    return x, y
 
-    if isinstance(valfmt, str):
-        valfmt = matplotlib.ticker.StrMethodFormatter(valfmt)
 
-    # Loop over the data and create a `Text` for each "pixel".
-    # Change the text's color depending on the data.
-    texts = []
-    for i in range(data.shape[0]):
-        for j in range(data.shape[1]):
-            kw.update(color=textcolors[int(im.norm(data[i, j]) > threshold)])
-            text = im.axes.text(j, i, valfmt(data[i, j], None), **kw)
-            texts.append(text)
+  def show_one(self, result:dict, models:list=None,
+               pred2show:int = None, img_size=None, figsize=None, fontsize=None, fontfamily=None):
+    """
+    Show selected or all predictions for one image ( = one result item )
+      Args:
+        result(dict): The path to the image.
+        models(str): Display the (user-assigned) model identifier
+        pred2show(int): How many of the top results to show for each prediction.
+          Set to True to display immediately after show_pred call
+          Set to False to allow additional "add_pred" calls before displaying.
+          Use `plt.show()` to display when complete
 
-    return texts
+      Returns:
+         axs: object from plt.subplot call
+         x:   x position
+         y:   y position
+         None if there are no predictions
+    """
+    models      = if_None(models,   self.model_list)
+    figsize     = if_None(figsize,  self.figsize)
+    img_size    = if_None(img_size, self.imgsize)
+    fontsize    = if_None(fontsize, self.fontsize)
+    fontfamily  = if_None(fontfamily, self.fontfamily)
+    pred2show   = if_None(pred2show, self.pred2show)
+
+    img_path    = Path(result['path'])
+
+    y_start = 0
+    y_per_line = int(1.9 * fontsize)+2
+    indent = 20
+
+    # Show the image without frame or ticks
+    fimg = ImageOps.fit(Image.open(img_path), size=img_size, method=self.resize_method, centering=(0.5, 0.4))
+    fig, ax = plt.subplots(1, 1, figsize=figsize, subplot_kw=dict(frame_on=False, xticks=[], yticks=[]))
+    self.ax = ax
+    ax.imshow(fimg)
+
+    # Show the image file name
+    x = img_size[0] + indent - 4
+    y = y_start
+    ax.text(x, y, img_path.name, fontsize=fontsize, fontfamily=fontfamily, verticalalignment='top')
+
+    # Show the model(s) and their prediction probabilities
+    self.x = x + indent
+    self.y = y + y_per_line
+    for m in models:
+      self.add_pred(result[m], model_id=m, n2show=pred2show)
+
+    plt.show()
+    return ax
+
+  def show(self, items:Union[int,list], models=None ):
+    """
+    Show items from the result list
+    Args:
+      items ():
+      models ():
+
+    Returns:
+
+    """
+    if type(items) is int:
+      if items <= self.results_len :
+        self.show_one(self.results[items], models=models)
+      return
+    if type(items) is not list:
+      raise TypeError(f"type(items)={type(items)}; 'items' must be an int or a list of ints")
+    for n in items :
+      if n <= self.results_len :
+        self.show_one(self.results[n], models=models)
+    return
+
+
+  # def show_result(self, result:dict, pred2show:int=3, figsize=(3.0,3.5),
+  #                 img_size=(224,224), fontsize=12, fontfamily='monospaced') :
+  #   """
+  #   Show selected or all predictions for one image ( = one result item )
+  #     Args:
+  #       result(dict): The path to the image.
+  #       img(Image): Image to use (optional, if not passed, image is read from 'img_path')
+  #       pred2show(int): How many of the top results to show for each prediction.
+  #         Set to True to display immediately after show_pred call
+  #         Set to False to allow additional "add_pred" calls before displaying.
+  #         Use `plt.show()` to display when complete
+  #
+  #     Returns:
+  #        axs: object from plt.subplot call
+  #        x:   x position
+  #        y:   y position
+  #        None if there are no predictions
+  #   """
+  #
+  #   models = [m for m in result.keys() if m not in ['name','path']]
+  #
+  #   img_path = Path(result['path'])
+  #
+  #   y_start       = 4
+  #   y_per_line    = int(1.9 * self.fontsize)
+  #   indent        = 20
+  #
+  #   # Show the image  without frame or ticks
+  #   fimg     = ImageOps.fit(Image.open(img_path), size=img_size, method=Image.NEAREST, centering=(0.5, 0.4))
+  #   fig, ax  = plt.subplots(1, 1, figsize=figsize, subplot_kw=dict(frame_on=False, xticks=[], yticks=[]))
+  #   self.ax  = ax
+  #   ax.imshow(fimg)
+  #
+  #   # Show the image file name
+  #   x = img_size[0] + indent - 4
+  #   y = y_start
+  #   ax.text(x, y, img_path.name, fontsize=fontsize, fontfamily=fontsize)
+  #
+  #   # Show the model(s) and their prediction probabilities
+  #   self.x = x + indent
+  #   self.y = y + y_per_line + 2
+  #   for m in models[1:len(models)]:
+  #      self.add_pred( result[m], model_id=m, n2show=pred2show)
+  #
+  #   plt.show()
+  #   return ax
+
+  def show_random(self,count=5,models=None) :
+    import random
+    display_list = random.sample(range(self.results_len), count)
+    display_list.sort()
+    print(f"\nShowing results {display_list} \n  and top {self.pred2show} probabilities for each model")
+    self.show(display_list, models=None)
+
+
 
