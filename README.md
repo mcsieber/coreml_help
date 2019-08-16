@@ -47,10 +47,15 @@ Once initialized, captures and keeps track of :
 Python helper classes and functions to facilitate generation and display
 of predictions from CoreML, ONNX, and Torch models.
 
-class **Classifier**  to invoke models, and collect and manage the resulting predictions.
-class **Results**  to browse and display results saved by Classifier
+### Classes
 
-Model Execution and Calculation Functions:
+#### Classifier 
+To invoke models, and collect and manage the resulting predictions.
+
+#### Results
+To browse and display results saved by Classifier
+
+#### Model Execution and Calculation Functions:
 ```
    norm_for_imagenet  Normalize using ImageNet values for mean and standard dev.
    pred_for_coreml    Run and show Predictions for a native CoreML model
