@@ -1,26 +1,23 @@
 """
-Python helper functions to facilitate working with CoreML and ONNX and converting from one to the other.
+This module contains python classes and functions to facilitate examining and repairing CoreML models.
+A companion module, `pred_help`, contains classes and functions to generate, display and compare
+predictions from CoreML and other model types.
 
-These functions depend on package `coremltools`. If you are converting between ONNX and CoreML,
-you will need `onnx_coreml`, `onnx`, and `onnxruntime` as well.
+Here you will find:
+
+  - Class `CoremlBrowser` - View and edit the CoreML *protobuf spec*,
+    generate and capture the shapes, and compile the *spec* to produce a MLModel object.
+
+  - Convenience functions to call CoremlBrowser methods, and gather random images.
+
 
 .. tip::
   If you want *real* help with CoreML, I highly recommend **Matthijs Holleman's**
   *“Core ML Survival Guide.”*. Informative and well-written.
   Easy to read, as much as books on this subject can be.
 
-  Model Execution and Calculation Functions:
-  ```
-       norm_for_imagenet  Normalize using ImageNet values for mean and standard dev.
-       pred_for_coreml    Run and show Predictions for a native CoreML model
-       pred_for_onnx      Run and show Predictions for a native ONNX model
-       pred_for_o2c       Run and show Predictions for a CoreML model converted from ONNX
-       softmax
-  ```
-
-Also,
-
-.. tip::    Use **Netron**
+These functions depend on package `coremltools`. If you are converting between ONNX and CoreML,
+you will need `onnx_coreml`, `onnx`, and `onnxruntime` as well.
 
 I wrote these as a learning exercise for my own use. Feedback welcome.
 Most of this is based on the work of others,  but there can be no question that any
@@ -29,7 +26,9 @@ bugs, errors, misstatements,and, especially, inept code constructs, are entirely
 ---------------------
 """
 
-# Configuration, common imports and functions
+# pdoc - dictionary and helper function - used below to document named tuples
+__pdoc__ = {}
+def _doc(key:str, val:str): __pdoc__[key] = val
 
 import numpy as np
 from pathlib import Path
@@ -37,9 +36,6 @@ from collections import namedtuple
 from coremltools.proto import Model_pb2
 from coremltools.models.model import MLModel
 import coremltools.models.model as cm
-
-# if __name__ == '__main__':
-# import coremltools.models.utils as cu
 
 ### Convenience Types
 # If a type starts with a 'u', it is almost certainly one of these, and defined here
@@ -50,86 +46,123 @@ if 'Uarray' not in globals():
   from numpy  import ndarray
 
   Uarray = Union[ndarray, List]
+  """ ndarray or a list"""
   Uimage = Union[ndarray, Image.Image]
+  """ ndarray or an image"""
   Upath  = Union[Path,str]
+  """ Path object or a string"""
 
 ### Data Formats #########################
 
 LayerAudit = namedtuple('LayerAudit', 'changed_layer input_before input_after error')
-ImagePrediction = namedtuple('ImagePrediction', 'topI topP topL')
-ImageRepo  = namedtuple('ImageRepo' , 'mean std labels_url')
+# doc
+_doc('LayerAudit','Namedtuple to track changes to a CoreML model')
+_doc('LayerAudit.changed_layer', '*Name* of the changed layer')
+_doc('LayerAudit.input_before', 'Value of the input list *before* any changes')
+_doc('LayerAudit.input_after', 'Value of the input list *after* any changes')
+_doc('LayerAudit.error', 'Errors, if any')
 
-### Data, Data Sources
+_sp  = ' '  # Spacer, e.g. f"{_sp:10}"
 
-# _default_change = LayerAudit(changed_layer="NONE", input_before=None, input_after=None, error=None)
-
-imagenet = ImageRepo( mean   = [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225],
-                      labels_url ='https://s3.amazonaws.com/onnx-model-zoo/synset.txt' )
-
-cifar    = ImageRepo( mean = [0.491, 0.482, 0.447], std=[0.247, 0.243, 0.261], labels_url=None)
-
-mnist    = ImageRepo( mean = [0.15]*3, std  = [0.15]*3, labels_url=None)
-
-_sp      = ' '  # Spacer, e.g. f"{_sp:10}"
-
-# CoreML Model inspection
-
-class CoremlBrowser(object):
+class CoremlBrowser:
   """
-  Use:
+  Class to browse and repair CoreML models.
 
-  To use, initialize a browser instance using the '.mlmodel' file
+  To **use**, initialize a browser instance using the '.mlmodel' file
+  (Also called the *spec* file or the *protobuf spec* file).
 
-        from coreml_help import CoremlBrowser
-        cmb = CoremlBrowser(" ... a '.mlmodel' file " )
+      from coreml_help import CoremlBrowser
+      cmb = CoremlBrowser(" ... a .mlmodel file " )
 
-  Then the following are initialized:
+  Then in the browser object following will be **initialized**:
 
-        cmb.spec        # The protobuf spec
-        cmb.nn          # The neural network object
-        cmb.layers      # The nn layers array
-        cmb.layer_dict  # maps layer names to layer indexes
-        cmb.layer_count # the count of nn layers
-        cmb.shaper      # The shape inference object for this model
+      cmb.spec        # The *protobuf spec*
+      cmb.nn          # The neural network object
+      cmb.layers      # The neural network layers list
+      cmb.layer_dict  # maps layer names to layer indexes
+      cmb.layer_count # the count of nn layers
+      cmb.shaper      # The shape inference object for this model
 
-  To show layers 10 - 15 (including shapes)
+  To **show** layers 10 - 15 (including shapes)
 
-        cmb.show_nn(10,5)
+      cmb.show_nn(10,5)
 
-  To delete the layers named "conv_10" and "relu_14"
+  To **delete** the layers named "conv_10" and "relu_14"
 
-        cmb.delete_layers(['conv_10', 'relu_14'])
+      cmb.delete_layers(['conv_10', 'relu_14'])
 
-  The class "CoremlBrowser" inspection and "model surgery" methods
+  The principal inspection and "model surgery" methods are
 
-      show_nn         Show a summary of neural network layers by index or name
-      connect_layers  Connect the output of one layer to the input of another
-      delete_layers   Delete CoreML NN layers by *name*.
-      get_nn          Get the layers object for a CoreML neural network
+    - `CoremlBrowser.show_nn`         Show a summary of neural network layers by index or name
+    - `CoremlBrowser.connect_layers`  Connect the output of one layer to the input of another
+    - `CoremlBrowser.delete_layers`   Delete CoreML NN layers by *name*.
 
   Associated Convenience Functions:
 
-        show_nn          Show a summary of nn (Function equivalent of `show_nn` method)
-        show_head
-        show_tail        Convenience functions  of  method `show_nn`
-        get_rand_images  Return images (jpg and png) randomly sampled from child dirs.
+    - `show_nn`          Show a summary of nn (Function equivalent of show_nn method)
+    - `show_head`
+    - `show_tail`        Convenience functions  of  method `show_nn`
+    - `get_rand_images`  Return images (jpg and png) randomly sampled from child dirs.
 
+  -------
   """
 
-  def compile_coreml(self) -> str :
+  def __init__(self, mlmodel: Union[Upath, MLModel]):
     """
-    Compile the spec to generate shape information
+
+    Args:
+      mlmodel: Either the path to the `protobuf` spec, or an extant `MLModel` object
+
+    """
+    self.mlmodel = None
+    """ A MLModel object. The result of **compiling** the '.mlmodel' file """
+    self.mlmodel_path = None
+    """ The full path of the '.mlmodel' file """
+
+    if isinstance(mlmodel, MLModel):
+      self.mlmodel = mlmodel
+      self.mlmodel_path = None
+    elif isinstance(mlmodel, Path) or isinstance(mlmodel, str):
+      self.mlmodel_path = Path(mlmodel)
+      self.mlmodel = cm.MLModel(self.mlmodel_path.as_posix())
+    else:
+      raise TypeError("'mlmodel is not a MLModel, a Path, or a file path string")
+
+    self.spec = self.mlmodel.get_spec()
+    """ (Protobuf) spec for the model. Also the result of *loading* the '.mlmodel' file """
+    self.nn = self.get_nn()
+    """ Neural network layers object"""
+    self.layers = self.nn.layers
+    """ Neural network layers"""
+    self.layer_count = len(self.layers)
+    """ NUmber  of layers"""
+    self.layer_dict = {layer.name: i for i, layer in enumerate(self.layers)}
+    """ Maps a layer name to its index"""
+    self.name_len_centile = int(np.percentile(np.array([len(l.name) for l in self.layers]), 90))
+    """ 90% of the layer names are equal to or shorter than this value"""
+    self.shaper = None
+    """ Shape inference object for this model"""
+    self.layer_shapes = None
+    """ Shape dictionary for this model"""
+    self.init_shapes()
+
+
+  def compile_coreml(self)->str:
+    """
+    Compile the protobuf spec using the OSX `coremlcompiler` application.
+    Used to capture shape information when instantiating a CoremlBrowser.
+
+    Uses:
+      `CoremlBrowser.spec`, the (Protobuf) spec for the model.
 
     Returns:
-      If successful, a the stdout from the compiler, which (should) contain shape info.
-      Otherwise "None"
+      `stdout` (str): The *stdout* from the compiler,
+      which (should) contain shape info, or an empty string.
 
-    Creating a MLModel object will also compile, but I don't think the
-    shape info from that compilation is accessible. 'coremltools' uses
-    a temp directory and file to do its compilation.
+    Note:
+      The *OSX shell command* to run the compiler is
 
-    The command to run the compiler is:
-        xcrun coremlcompiler compile rn50.mlmodel out > rn50-compile-out.txt
+      `xcrun coremlcompiler compile rn50.mlmodel out > rn50-compile-out.txt`
 
     """
     from sys import platform
@@ -141,23 +174,24 @@ class CoremlBrowser(object):
     return compilation.stdout if compilation.returncode == 0 else ''
 
 
-  def extract_shapes(self, comp_output:str ) -> Union[dict,None]:
+  def extract_shapes(self, comp_output:str )->dict:
     """
     Extract the shape of the network layers from the mlmodel compilation output file.
 
     Args:
-      out_file - name of the text output file captured from compiling the .mlmodel file
+      comp_output: The text output captured from compiling the .mlmodel file.
 
-    Returns:
-      Dictionary of lists keyed by layer name: '{ layer0_name:[C,H,W], layer1_name:[C,H,W] .. }'
-      Each list is a triplet [C,H,W] representing the output shape of that layer.
+    Returns a dictionary of lists keyed by layer name, each list is a triplet [C,H,W]
+    representing the output shape of that layer.
+
+        `{ layer0_name:[C,H,W], layer1_name:[C,H,W] .. }`
 
     Notes:
+      Here is an sample line from the compiler output
 
-      Here is an sample line from the file:
-
-        'Neural Network compiler 174: 320 , name = 507, output shape : (C,H,W) = (4096, 1, 1)'
-
+    `
+    Neural Network compiler 174: 320 , name = 507, output shape : (C,H,W) = (4096, 1, 1)
+    `
     """
     if comp_output is None or  len(comp_output) < 20 :
       print(f"Compilation output string is None or too small",f"compiliation output: {comp_output}" )
@@ -196,15 +230,15 @@ class CoremlBrowser(object):
     Get shapes for the layers in the model. Compiles model to get shapes.
 
     Args:
-      prefer_shaper (bool):
+      use_shaper (bool):
         False => Ignore the shaper object, try to compile model to get shapes
-        True (default) => Use the shaper object if available
+        True  => Use the shaper object if available
 
     Returns:
-      True for success - the field `xxx` contains a valid shape dictionary
+      True for success => the object variable `layer_shapes` contains a valid shape dictionary
       False for failure
 
-    If the `NeuralNetworkShaper` object crashes python sometimes
+    The`NeuralNetworkShaper` object crashes python sometimes
     (prob. because the network is invalid in some way),
     - so it is not preferred.
     """
@@ -232,44 +266,12 @@ class CoremlBrowser(object):
       print()
 
 
- # def __init__(self, mlmodel_file:upath= None, mlmodel:object= None):
-
-  def __init__(self, mlmodel:Union[Upath, MLModel] ):
-
-    self.mlmodel      = None
-    self.mlmodel_path = None
-
-    if isinstance(mlmodel,MLModel):
-      self.mlmodel      = mlmodel
-      self.mlmodel_path = None
-    elif isinstance(mlmodel,Path) or isinstance(mlmodel,str):
-      self.mlmodel_path = Path(mlmodel)
-      self.mlmodel      = cm.MLModel(self.mlmodel_path.as_posix())
-    else:
-      raise TypeError("'mlmodel is not a MLModel, a Path, or a file path string")
-
-    self.spec = self.mlmodel.get_spec()
-    """ (Protobuf) spec for the model"""
-    self.nn     = self.get_nn()
-    """ Neural network layers object"""
-    self.layers = self.nn.layers
-    """ Neural network layers"""
-    self.layer_count = len(self.layers)
-    """ NUmber  of layers"""
-    self.layer_dict = {layer.name:i for i,layer in enumerate(self.layers)}
-    """ Maps a layer name to its index"""
-    self.name_len_centile = int(np.percentile(np.array([len(l.name) for l in self.layers]), 90))
-    """ 90% of the layer names are equal to or shorter than this value"""
-    self.shaper = None
-    """ Shape inference object for this model"""
-    self.layer_shapes = None
-    """ Shape dictionary for this model"""
-    self.init_shapes()
 
 
   def _repr(self):
     """
-    Show something more useful than "object" when called
+    Show the path, layer count and description for this model.
+    (goal is to something more useful than "object" when called)
     """
     all_text = ''
 
@@ -304,10 +306,10 @@ class CoremlBrowser(object):
       name (str): The name of the layer
 
     Returns (Union[dict, str]):
+      The shape dict object from the shape dictionary if it exists, or
       The shape dict returned by the shaper object if it exists, or
       The text of the exception generated by the shaper object, or
-      The shape dict object from the shape dictionary if it exists, or
-      the text ' - {name} no shapes - "
+      None
     """
     res = None
 
@@ -551,8 +553,7 @@ class CoremlBrowser(object):
 
     Layers are identified by name. An invalid layer name aborts any connection attempt.
     Note that when two layers are *connected*, only one layer is modified:
-    the only field that changes is the **to** layer's *input* field. Note also
-    that the  keyword arguments `from_` and `to_` are suffixed by underscores.
+    the only field that changes is the **to** layer's *input* field.
 
     Args:
       from_ (str): The name of the layer supplying the outputs
@@ -560,32 +561,29 @@ class CoremlBrowser(object):
       to_ (str): The name of the layer receiving the `from` outputs.
                    This layer's `input` field is modified.
 
-      replace (bool): *True* (default) Replaces (overwrites)
-                  the 'to' layer's input with the 'from' layer's output.
-                  *False* appends the 'from' layer's output to the the 'to' layer's input.
+      replace (bool): *True* (default) **Replaces** (overwrites)
+                  the *to layer*'s `input` with the *from layer*'s `output`.
+                  *False* **appends** the *from layer*'s `output` to the the *to layer*'s `input`.
 
     Return:
       A named tuple describing the change (see examples that follow)
 
     Examples:
+      ```
+        cmb = CoremlBrowser( ... path to 'mlmodel' file ...)
+        cmb.connect_layers(from_='conv336', to_='bnorm409')
+      ```
+      returns:
+      ```
+        ( changed_layer = 'bnorm409',
+          input_before  = ['concat408_output', 'add400_output'],
+          input_after   = ['conv336_output'] )
 
-          cmb = CoremlBrowser( ... path to 'mlmodel' file ...)
-
-          cmb.connect_layers(from_='conv336', to_='bnorm409')
-
+         connect_layers(nn, from_='conv100', to_='concat408')
+      ```
       returns:
 
-          ( changed_layer = 'bnorm409',
-            input_before  = ['concat408_output', 'add400_output'],
-            input_after   = ['conv336_output'] )
-
-
-          connect_layers(nn, from_='conv100', to_='concat408')
-
-      returns:
-
-          (changed_layer =  'None', error = "Layer ['conv100'] not found")
-
+        `  (changed_layer =  'None', error = "Layer ['conv100'] not found")  `
     """
     from copy import deepcopy
 
@@ -622,15 +620,16 @@ class CoremlBrowser(object):
       An array of dicts, one for each deletion
 
     Example:
-
-          delete_layers(nn,['conv335','bn400','avt500']) # ( assume 'avt500' does not exist)
-
-        returns:
-          [
-            {'deleted_layer': 'conv335',  'input': ['bn334'], 'output': ['conv335']},
-            {'deleted_layer': 'bn400', 'input': ['conv399'], 'output': ['bn400']},
-          ]
-
+    ```
+      delete_layers(nn,['conv335','bn400','avt500']) # ( assume 'avt500' does not exist)
+    ```
+    returns:
+    ```
+      [
+        {'deleted_layer': 'conv335',  'input': ['bn334'], 'output': ['conv335']},
+        {'deleted_layer': 'bn400', 'input': ['conv399'], 'output': ['bn400']},
+      ]
+    ```
     """
     from copy import deepcopy
     deleted = []
@@ -653,7 +652,10 @@ class CoremlBrowser(object):
 
   def compile_spec(self)->MLModel:
     """
-    Convenience to re-compile and save model after editing the spec
+    Convenience method to re-compile and save model after editing the spec.
+    Returns the compiled spec - the MLModel object. Equivalent to:
+
+      `CoremlBrowser.mlmodel` = `coremltools.models.MLModel`(`CoremlBrowser.spec`)
     """
     self.mlmodel = cm.MLModel(self.spec)
     return self.mlmodel
@@ -674,12 +676,10 @@ def show_tail(cmb:CoremlBrowser):
   """ Convenience for `show_nn(nn,-3)`"""
   show_nn( cmb, -3)
 
-
 def is_imgfile(f:Upath)->bool:
   """True if the file ends in 'jpg' or 'png' """
   f = Path(f)
   return f.is_file() and f.suffix in ['.jpg','.png','jpeg']
-
 
 
 def _rand_imgs_fm_dir(dir_path: Upath, n_images=40, limit=400) -> list:
@@ -687,10 +687,10 @@ def _rand_imgs_fm_dir(dir_path: Upath, n_images=40, limit=400) -> list:
   Return a list of image file names chosen randomly from `dir_path`.
 
   Args:
-    dir_path(upath): Path or str for the directory
-    n_images (int):  Requested number of image file names
-    limit (int):     Limit the number of files used for the random sample.
-                     Avoids un-intentional sampling of very large directorys.
+    dir_path (Upath): Path or str for the directory
+    n_images   (int): Requested number of image file names
+    limit      (int): Limit the number of files used for the random sample.
+                      Avoids un-intentional sampling of very large directorys.
 
   Returns:
     A list of randomly chosen '.jpg' or '.png' file names.
@@ -698,7 +698,6 @@ def _rand_imgs_fm_dir(dir_path: Upath, n_images=40, limit=400) -> list:
 
   Note:
     Only known to work on Unixen systems.
-
   """
   import random
 
@@ -711,16 +710,15 @@ def _rand_imgs_fm_dir(dir_path: Upath, n_images=40, limit=400) -> list:
   imgs_in_dir = [f for i, f in zip(range(max_files), dir_path.iterdir()) if is_imgfile(f)]
   return random.sample(imgs_in_dir, min(len(imgs_in_dir), n_images))
 
-def get_rand_images(dir_path: Upath, n_images=100, search_limit=400) -> list:
+def get_rand_images(dir_path:Upath, n_images=100, search_limit=400)->list:
   """
   Return images (jpg and png) randomly sampled from child directories.
 
   Args:
-    dir_path (upath): The parent directory of the children to search
-    n_images (int)  : Total number of images to return (actual number may be less)
-    search_limit (int) : Limit on the number of files to sample.
+    dir_path (Upath): The parent directory of the children to search
+    n_images (int): Total number of images to return (actual number may be less)
+    search_limit (int): Limit on the number of files to sample.
                          (To avoid performance issues with very large file counts)
-
   Returns:
     List of image files. Count may be less than requested.
 
@@ -737,41 +735,6 @@ def get_rand_images(dir_path: Upath, n_images=100, search_limit=400) -> list:
     img_files.extend(r)
 
   return img_files
-
-
-def _get_labels(repo: Union[ImageRepo, str]) -> list:
-  """
-   Get the labels for the specified data source - still a work in progress
-
-   If the data is available locally, use that, otherwise download and save locally
-
-   Args:
-     repo (ImageRepo,str): namedTuple for the data source (See example) or a file path as str
-
-   Return:
-     List containing the labels
-
-   Example:
-     The 'imagenet' ImageRepo looks like this:
-
-          imagenet =
-              ImageRepo(mean   = [0.485, 0.456, 0.406],
-                        std    = [0.229, 0.224, 0.225],
-                        url    = None,
-                        labels_url ='https://s3.amazonaws.com/onnx-model-zoo/synset.txt',
-                        local  = data_root/'imagenet',
-                        images = None,
-                        labels = data_root/'imagenet/imagenet_labels.txt',
-                       )
-
-   """
-  labels_file = repo if type(repo) is str else repo.labels
-  if labels_file is not None:
-    with open(labels_file, 'r') as list_:
-      labels = [line.rstrip() for line in list_]
-  else:
-    raise NotImplementedError('Labels file not found locally.  Please download and try again')
-  return labels
 
 
 def main():

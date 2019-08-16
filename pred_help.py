@@ -1,13 +1,38 @@
 """
-Functions to help with generation and display of predictions from
-CoreML, ONNX, and Torch models.
+Python helper classes and functions to facilitate generation and display of predictions from CoreML, ONNX, and Torch models.
 
-TODO: Fix - too much repetitive code in "pred" functions.
-TODO: Move "show_result" and related into this module?
-      Create Class "DisplayResults" to encapsulate a lot of the share functions and data?
+What's here:
+
+class **Classifier**  to invoke models, and collect and manage the resulting predictions.
+
+class **Results**  to browse and display results saved by Classifier
+
+Model Execution and Calculation Functions:
+
+```
+   norm_for_imagenet  Normalize using ImageNet values for mean and standard dev.
+   pred_for_coreml    Run and show Predictions for a native CoreML model
+   pred_for_onnx      Run and show Predictions for a native ONNX model
+   pred_for_o2c       Run and show Predictions for a CoreML model converted from ONNX
+   softmax
+```
+The general purpose of the *pred* functions is
+
+- On input, take a standard image - e.g. RGB, pixels values from 0-255 - and transform it to be acceptable as input
+to the specific model. This might require normalizing the data, or rescaling to the interval 0.0 - 1.0, etc.
+
+- On output, take the output from the model and transform it to an `ImagePrediction`
+
 """
+
+# pdoc dictionary and helper function - used to document named tuples
+
+__pdoc__ = {}
+def _doc(key:str, val:str): __pdoc__[key] = val
+
+# ----------------------------------------------------
+
 from collections import namedtuple
-#from enum import Enum,unique
 from ms_util import *
 import matplotlib
 from matplotlib import pyplot as plt
@@ -16,40 +41,93 @@ from PIL import Image, ImageOps
 """ 
 Formats and Data
 """
-# @unique
-# class PredAxis(Enum):
-#   IMG   = 0
-#   MODEL = 1
-#   PROB  = 2
-#   IDX   = 2
-#   RANK  = 3
-#
-# class PredPos(Enum):
-#   IDX   = 0
-#   PROB  = 1
-#   LABEL = 2
 
 ImagePrediction = namedtuple('ImagePrediction', 'topI topP topL')
-""" Standardizes the format of predictions returned by various models. Used when comparing results."""
+# doc
+_doc('ImagePrediction','Namedtuple: standard format returned from *pred* functions')
+_doc('ImagePrediction.topI', 'Indexes to top classes')
+_doc('ImagePrediction.topP', 'Top probabilities')
+_doc('ImagePrediction.topL', 'Top class Labels')
 
 ImageRepo  = namedtuple('ImageRepo' , 'mean std labels_url')
-""" Formats  normalization stats and URLs for various repositories"""
+# doc
+_doc('ImageRepo','Namedtuple that lists normalization stats and URLs for a repository')
+_doc('ImageRepo.mean', '*mean* values for normalization')
+_doc('ImageRepo.std', '*std* values for normalization')
+_doc('ImageRepo.labels_url', 'URL for class labels')
 
 PredParams = namedtuple('PredParams','func runtime imgsize labels')
-""" Specifies prediction params for a model"""
+# doc
+_doc('PredParams', 'Namedtuple: specifies the prediction function, the runtime session for a model, the expected image size and the class labels')
+_doc('PredParams.func', '*pred* function to use')
+_doc('PredParams.runtime', 'model object to invoke to genreate predictions')
+_doc('PredParams.imgsize', 'tuple for the expected image size')
+_doc('PredParams.labels', 'List containing the class labels, or None')
 
 ### Data, Data Sources
 
 imagenet = ImageRepo( mean   = [0.485, 0.456, 0.406], std= [0.229, 0.224, 0.225],
                      labels_url ='https://s3.amazonaws.com/onnx-model-zoo/synset.txt' )
+""" Imagenet `ImageRepo` """
 
 cifar    = ImageRepo( mean = [0.491, 0.482, 0.447], std=[0.247, 0.243, 0.261], labels_url=None)
+""" Cifar `ImageRepo` """
 
 mnist    = ImageRepo( mean = [0.15]*3, std  = [0.15]*3, labels_url=None)
+""" Mnist `ImageRepo` """
 
-#_resize_method = Image.NEAREST
 
-def if_None(x,default): return x if x is not None else default
+def if_None(x:any, default:any )->any:
+  """Return `default` if `x` is None."""
+  return x if x is not None else default
+
+#  TODO: Move this to ms_util.py
+
+
+def annotate_heatmap(im, data=None, valfmt="{x:.2f}", textcolors=["black", "white"],
+                     threshold=None, **textkw):
+  """
+  A function to annotate a heatmap.
+
+  Args:
+    im: The AxesImage to be labeled.
+    data: Data used to annotate.  If None, the image's data is used.  Optional.
+    valfmt: The format of the annotations inside the heatmap.
+        This should either use the string format method, e.g. "$ {x:.2f}",
+        or be a `matplotlib.ticker.Formatter`.  Optional.
+    textcolors: A list or array of two color specifications.  The first is used for
+        values below a threshold, the second for those above.  Optional.
+    threshold: Value in data units according to which the colors from textcolors are
+        applied.  If None (the default) uses the middle of the colormap as
+        separation.  Optional.
+    **kwargs: All other arguments are forwarded to each call to `text` used to create
+        the text labels.
+  """
+  if not isinstance(data, (list, np.ndarray)): data = im.get_array()
+
+  # Normalize the threshold to the images color range.
+  threshold = im.norm(data.max()) / 2. if threshold is None else im.norm(threshold)
+
+  # Set default alignment to center, but allow it to be overwritten by textkw.
+  kw = dict(horizontalalignment="center",
+            verticalalignment="center")
+  kw.update(textkw)
+
+  # Get the formatter in case a string is supplied
+
+  if isinstance(valfmt, str):
+    valfmt = matplotlib.ticker.StrMethodFormatter(valfmt)
+
+  # Loop over the data and create a `Text` for each "pixel".
+  # Change the text's color depending on the data.
+  texts = []
+  for i in range(data.shape[0]):
+    for j in range(data.shape[1]):
+      kw.update(color=textcolors[int(im.norm(data[i, j]) > threshold)])
+      text = im.axes.text(j, i, valfmt(data[i, j], None), **kw)
+      texts.append(text)
+
+  return texts
 
 
 def heatmap(data, row_labels, col_labels, ax=None,
@@ -57,8 +135,8 @@ def heatmap(data, row_labels, col_labels, ax=None,
   """
   Create a heatmap from a numpy array and two lists of labels.
 
-  Parameters
-  ----------
+  Args
+  ----
   data
       A 2D numpy array of shape (N, M).
   row_labels
@@ -114,62 +192,8 @@ def heatmap(data, row_labels, col_labels, ax=None,
   return im, cbar
 
 
-def annotate_heatmap(im, data=None, valfmt="{x:.2f}",
-                     textcolors=["black", "white"],
-                     threshold=None, **textkw):
-  """
-  A function to annotate a heatmap.
-
-  Args:
-    im:
-        The AxesImage to be labeled.
-    data:
-        Data used to annotate.  If None, the image's data is used.  Optional.
-    valfmt:
-        The format of the annotations inside the heatmap.  This should either
-        use the string format method, e.g. "$ {x:.2f}", or be a
-        `matplotlib.ticker.Formatter`.  Optional.
-    textcolors:
-        A list or array of two color specifications.  The first is used for
-        values below a threshold, the second for those above.  Optional.
-    threshold:
-        Value in data units according to which the colors from textcolors are
-        applied.  If None (the default) uses the middle of the colormap as
-        separation.  Optional.
-    **kwargs:
-        All other arguments are forwarded to each call to `text` used to create
-        the text labels.
-  """
-
-  if not isinstance(data, (list, np.ndarray)): data = im.get_array()
-
-  # Normalize the threshold to the images color range.
-  threshold = im.norm(data.max()) / 2. if threshold is None else im.norm(threshold)
-
-  # Set default alignment to center, but allow it to be overwritten by textkw.
-  kw = dict(horizontalalignment="center",
-            verticalalignment="center")
-  kw.update(textkw)
-
-  # Get the formatter in case a string is supplied
-
-  if isinstance(valfmt, str):
-    valfmt = matplotlib.ticker.StrMethodFormatter(valfmt)
-
-  # Loop over the data and create a `Text` for each "pixel".
-  # Change the text's color depending on the data.
-  texts = []
-  for i in range(data.shape[0]):
-    for j in range(data.shape[1]):
-      kw.update(color=textcolors[int(im.norm(data[i, j]) > threshold)])
-      text = im.axes.text(j, i, valfmt(data[i, j], None), **kw)
-      texts.append(text)
-
-  return texts
-
-
 """ 
-Layer Calculations
+=== Layer Calculations ===============================
 """
 
 def softmax(x: Uarray) -> ndarray:
@@ -196,21 +220,8 @@ def norm_for_imagenet(img: Uimage) -> ndarray:
   """
   Normalize an image using ImageNet values for mean and standard deviation.
 
-  For each pixel in each channel, scale to the interval [0.0, 1.0] and then
-  normalize using the mean and standard deviation from ImageNet.
-  The input values are assumed to range from 0-255,
-  input type is assumed to be an ndarray,
-  or an image format that can be converted to an ndarray.
-  Here is the formula:
-
-      normalized_value = (value/255.0 - mean)/stddev
-
-      mean = [0.485, 0.456, 0.406]
-      std  = [0.229, 0.224, 0.225]
-
   Args:
-    img (Union[ndarray, Image.Image]):
-      Image data with values between 0-255.
+    img(ndarray,Image.Image): Image data with values between 0-255.
       If not an ndarray, must be convertible to one.
       Shape must be either (3,_,_) or (_,_,3)
 
@@ -220,6 +231,18 @@ def norm_for_imagenet(img: Uimage) -> ndarray:
   Raises:
     ValueError: If image shape is not (3,_,_) or (_,_,3), or number of dimensions is not 3
 
+  Notes:
+    For each pixel in each channel, scale to the interval [0.0, 1.0] and then
+    normalize using the mean and standard deviation from ImageNet.
+    The input values are assumed to range from 0-255,
+    input type is assumed to be an ndarray,
+    or an image format that can be converted to an ndarray.
+    Here is the formula:
+
+        normalized_value = (value/255.0 - mean)/stddev
+
+        mean = [0.485, 0.456, 0.406]
+        std  = [0.229, 0.224, 0.225]
   """
   img = np.array(img)
   if img.ndim != 3: raise ValueError(f"Image has {img.ndim} dimensions, expected 3")
@@ -245,66 +268,113 @@ def norm_for_imagenet(img: Uimage) -> ndarray:
 Model Execution and ImagePrediction
 """
 
-def image_pred(topI=Uarray, topP=Uarray, topL=Uarray)->ImagePrediction:
+def _image_pred(topI=Uarray, topP=Uarray, topL=Uarray)->ImagePrediction:
+  """ Construct and return an `ImagePrediction` tuple"""
   return ImagePrediction(topI=topI, topP=np.array(topP), topL=topL)
 
 _no_results = ([0], [0.00], ["No Results"])
 """ Default ImagePrediction values"""
 
 
-def pred_for_torch(model, img:Uimage, labels=None, n_top:int=3, )->ImagePrediction:
+"""
+=== Prediction Functions ===============================
+"""
+
+def pred_for_coreml(model, img:Uimage, labels=None, n_top:int=3 )->ImagePrediction:
   """
-  Run the Torch Classifier model return the top results.
+  Run a native CoreML Classifier and return the top results as a standardized *ImagePrediction*.
+  If you want to run a CoreML model **converted** from ONNX, use `pred_for_o2c`
+
+  Args:
+    model (object): The coreml model to use for the prediction
+    img (Image.Image): Fitted image to use for test
+    n_top (int): Number of top values to return (default 3)
+
+  Returns:
+    ImagePrediction
+  """
+
+  topI, topP, topL = _no_results
+  in_name, out_name = None, None
+
+  try:
+
+    description = model.get_spec().description
+    in_name   = description.input[0].name
+    out_name  = description.output[0].name
+
+    y       = model.predict({in_name:img}, useCPUOnly=True)
+
+    pdict   = y[out_name]
+    prob    = [v for v in pdict.values()]
+    labels  = [k for k in pdict.keys()]
+    topI    = np.argsort(prob)[:-(n_top+1):-1]
+    topP    = np.array([prob[i]  for i in topI])
+    topL    = [labels[i] for i in topI]
+
+  except Exception as e :
+    print()
+    print(f"Exception from pred_for_coreml(input={in_name}, output={out_name})")
+    print(e)
+
+  return _image_pred(topI=topI, topP=topP, topL=topL)
+
+
+def pred_for_o2c(model, img:Uimage,  labels=None, n_top:int=3 )->ImagePrediction:
+  """
+  Run a CoreML Classifier model that was converted from ONNX;
+  return the top results as a standardized *ImagePrediction*.
 
   This function converts the output from the final layer to a list of probabilities,
-  then extracts the top items and associated labels.
-
-  This step is needed because the Torch Resnet50 model does not contain a final softmax layer
+  then extracts the top items and associated labels. This step is needed because
+  the ONNX Resnet50 model does not contain a final softmax layer, and the
+  conversion to CoreML does not add one. (The native CoreML Resnet50 does have a softmax layer)
 
   Args:
     model (object): The CoreML model to use for inference
     img (Image.Image): The image to process. Expected to be an image with values 0-255
-    labels ([str]): Class Labels for output
     n_top (int): Number of top values to return (default 3)
-
+    labels ([str]): Class Labels for output, if needed
 
   Return:
-    'ImagePrediction' named tuple with three items:
-      - topI [ Indexes to top probabilities ], from argsort
-      - topP [ Top probabilities ]
-      - topL [ Top Labels ]
+    ImagePrediction
   """
-  import torch
-  from torch.autograd import Variable
-  from torchvision.transforms.functional import to_tensor
-  from torchvision.transforms.functional import normalize
-  from torch.nn.functional import softmax as t_softmax
 
   topI, topP, topL = _no_results
+  in_name,  out_name = None, None
 
   try:
-    norm_img      = normalize(to_tensor(img), mean=imagenet.mean, std=imagenet.std)
-    reshaped_img  = norm_img.reshape(tuple([1]) + tuple(norm_img.shape))
-    img_tensor    = torch.as_tensor(reshaped_img, dtype=torch.float)
-    x = Variable(img_tensor)
 
-    y = model(x)
+    description = model.get_spec().description
+    in_name   = description.input[0].name
+    out_name  = description.output[0].name
 
-    tout      = t_softmax(y, dim=1)
-    top       = tout.topk(n_top)
-    topI = top.indices[0].tolist()
-    topP = top.values[0].tolist()
-    topL = [ labels[i]   for i in topI ]
+    y         = model.predict({in_name:img}, useCPUOnly=True)
+    y_out     = y[out_name]
+    out_type  = type(y_out)
 
-  except Exception as e :
-    print()
-    print(f"Exception from pred_for_torch(input={''}, output={''})")
+    if out_type is ndarray: # Case 1: conversion from onnx->coreml
+      pvals = np.squeeze(y_out)
+    elif out_type is dict:  # Case 2: conversion from torch->onnx->coreml
+      pvals   = np.array([v for v in y_out.values()])
+      labels  = np.array([k for k in y_out.keys()])
+    else:                   # Case ?: Don't know ... probably an error
+      raise TypeError(f"Type {out_type} of model output is unexpected or incorrect")
+
+    prob    = softmax(pvals)
+    topI    = np.argsort(prob)[:-(n_top+1):-1]
+    topP    = [ prob[i]   for i in topI ]
+    topL    = [ 'None' if labels is None else labels[i] for i in topI ]
+
+  except Exception as e:
+    print(f"Exception from pred_for_o2c(input={in_name}, output={out_name})")
     print(e)
 
-  return image_pred(topI=topI, topP=topP, topL=topL)
+  pred = _image_pred(topI=topI, topP=topP, topL=topL)
+  return pred
 
 
-def pred_for_onnx(sess, img:Uimage,labels=None, n_top:int=3 )->ImagePrediction:
+def pred_for_onnx(sess:object, img:Uimage, labels=None, n_top=3 )->ImagePrediction:
   """
   Run the ONNX Classifier model and return the top results as a standardized *ImagePrediction*.
 
@@ -317,16 +387,13 @@ def pred_for_onnx(sess, img:Uimage,labels=None, n_top:int=3 )->ImagePrediction:
     - extracts the top items and associated labels.
 
   Args:
-    sess (object) : the ONNX run-time session(model) to use for prediction
-    img (Union[ndarray,Image.Image]):  image or image data to use for test
-    n_top (int): Number of top values to return (default 4)
+    sess (object): The ONNX run-time session(model) to use for prediction
+    img (Union[ndarray,Image.Image]):  Image or image data to use for test
+    n_top (int): Number of top values to return
     labels ([str]): Class labels for output
 
   Return:
-    'ImagePrediction' named tuple with three items:
-      - topI [ Indexes to top probabilities ], from argsort
-      - topP [ Top probabilities ]
-      - topL [ Top Labels ]
+    ImagePrediction
   """
   # Use the image to generate acceptable input for the model
   # - move axes if needed, normalize, add a dimension to make it (1,3,224,224)
@@ -360,108 +427,57 @@ def pred_for_onnx(sess, img:Uimage,labels=None, n_top:int=3 )->ImagePrediction:
     print(f"Exception from pred_for_onnx(input={input0_name}, output={output_name})")
     print(e)
 
-  return image_pred(topI=topI, topP=topP, topL=topL)
+  return _image_pred(topI=topI, topP=topP, topL=topL)
 
 
-def pred_for_o2c(model, img:Uimage,  labels=None, n_top:int=3 )->ImagePrediction:
+def pred_for_torch(model:object, img:Uimage, labels=None, n_top:int=3, )->ImagePrediction:
   """
-  Run a CoreML Classifier model that was converted from ONNX; return the top results as a standardized *ImagePrediction*.
+  Run the Torch Classifier model return the top results.
 
   This function converts the output from the final layer to a list of probabilities,
-  then extracts the top items and associated labels.
-
-  This step is needed because the ONNX Resnet50 model does not contain a final softmax layer, and the
-  conversion to CoreML does not add one. (The native CoreML Resnet50 does have a softmax layer)
+  then extracts the top items and associated labels. This step is needed because the
+  Torch Resnet50 model does not contain a final softmax layer
 
   Args:
     model (object): The CoreML model to use for inference
-    img (Image.Image): The image to process. Expected to be an image with values 0-255
-    n_top (int): Number of top values to return (default 3)
-    labels ([str]): Class Labels for output, if needed
-
-  Return:
-    'ImagePrediction' named tuple with three items:
-      - topI [ Indexes to top probabilities ], from argsort
-      - topP [ Top probabilities ]
-      - topL [ Top Labels ]
-  """
-
-  topI, topP, topL = _no_results
-  in_name,  out_name = None, None
-
-  try:
-
-    description = model.get_spec().description
-    in_name   = description.input[0].name
-    out_name  = description.output[0].name
-
-    y         = model.predict({in_name:img}, useCPUOnly=True)
-    y_out     = y[out_name]
-    out_type  = type(y_out)
-
-    if out_type is ndarray: # Case 1: conversion from onnx->coreml
-      pvals = np.squeeze(y_out)
-    elif out_type is dict:  # Case 2: conversion from torch->onnx->coreml
-      pvals   = np.array([v for v in y_out.values()])
-      labels  = np.array([k for k in y_out.keys()])
-    else:                   # Case ?: Don't know ... probably an error
-      raise TypeError(f"Type {out_type} of model output is unexpected or incorrect")
-
-    prob    = softmax(pvals)
-    topI    = np.argsort(prob)[:-(n_top+1):-1]
-    topP    = [ prob[i]   for i in topI ]
-    topL    = [ 'None' if labels is None else labels[i] for i in topI ]
-
-  except Exception as e:
-    print(f"Exception from pred_for_o2c(input={in_name}, output={out_name})")
-    print(e)
-
-  pred = image_pred(topI=topI, topP=topP, topL=topL)
-  return pred
-
-
-def pred_for_coreml(model, img:Uimage, labels=None, n_top:int=3 )->ImagePrediction:
-  """
-  Run a native CoreML Classifier and return the top results as a standardized *ImagePrediction*.
-
-  Args:
-    model (object) : the coreml model to use for the prediction
-    img (Image.Image): fitted image to use for test
+    img (Uimage): The image to classify. Either an Image or image data in a ndarray with values 0-255.
+    labels ([str]): Class Labels for output
     n_top (int): Number of top values to return (default 3)
 
-  Return:
-    'ImagePrediction' named tuple with three items:
-      - topI [ Indexes to top probabilities ], from argsort
-      - topP [ Top probabilities ]
-      - topL [ Top Labels ]
 
-  If you want to run a CoreML model **converted** from ONNX, use `pred_for_o2c`
+  Return:
+    ImagePrediction
+
   """
+  import torch
+  from torch.autograd import Variable
+  from torchvision.transforms.functional import to_tensor
+  from torchvision.transforms.functional import normalize
+  from torch.nn.functional import softmax as t_softmax
 
   topI, topP, topL = _no_results
-  in_name, out_name = None, None
 
   try:
+    norm_img      = normalize(to_tensor(img), mean=imagenet.mean, std=imagenet.std)
+    reshaped_img  = norm_img.reshape(tuple([1]) + tuple(norm_img.shape))
+    img_tensor    = torch.as_tensor(reshaped_img, dtype=torch.float)
+    x = Variable(img_tensor)
 
-    description = model.get_spec().description
-    in_name   = description.input[0].name
-    out_name  = description.output[0].name
+    y = model(x)
 
-    y       = model.predict({in_name:img}, useCPUOnly=True)
-
-    pdict   = y[out_name]
-    prob    = [v for v in pdict.values()]
-    labels  = [k for k in pdict.keys()]
-    topI    = np.argsort(prob)[:-(n_top+1):-1]
-    topP    = np.array([prob[i]  for i in topI])
-    topL    = [labels[i] for i in topI]
+    tout      = t_softmax(y, dim=1)
+    top       = tout.topk(n_top)
+    topI = top.indices[0].tolist()
+    topP = top.values[0].tolist()
+    topL = [ labels[i]   for i in topI ]
 
   except Exception as e :
     print()
-    print(f"Exception from pred_for_coreml(input={in_name}, output={out_name})")
+    print(f"Exception from pred_for_torch(input={''}, output={''})")
     print(e)
 
-  return image_pred(topI=topI, topP=topP, topL=topL)
+  return _image_pred(topI=topI, topP=topP, topL=topL)
+
 
 
 
@@ -497,9 +513,22 @@ def _fmt_results(pred: ImagePrediction, n2show=2) -> str:
   return results
 
 
-def show_pred(img_path: Upath, pred: ImagePrediction, model_id="Model",
+def show_pred(img_path:Upath, pred:ImagePrediction, model_id="Model",
               pred2show=3, figsize=(2.0, 3.5), img_size=(200, 200),
               fontsize=12, fontfamily='monospace'):
+  """
+  Display the image and predictions side by side.
+
+  Args:
+    img_path (Union[str,Path]): The path to the image
+    pred (ImagePrediction): The prediction tuple returned from the *pred* function
+    model_id (str): The model short name
+    pred2show (ing): How many of the top probabilities to display
+    figsize (tuple): Size of the subplot
+    img_size (tuple): Size of the image
+    fontsize (int): Font size
+    fontfamily (str): Font family
+  """
 
   def add_text(x,y,txt):
     ax.text(x, y, txt, verticalalignment='top', fontsize=fontsize, fontfamily=fontfamily)
@@ -529,9 +558,6 @@ def show_pred(img_path: Upath, pred: ImagePrediction, model_id="Model",
 
   plt.show()
 
-
-
-
   #
 
 # def preds_result(img_path: Upath, pred_dict: dict) -> dict:
@@ -555,8 +581,18 @@ def show_pred(img_path: Upath, pred: ImagePrediction, model_id="Model",
 #   return res
   
 class Classifier:
-
+  """
+  This class keeps the models to be run and captures their predictions.
+  """
   def __init__(self, params:dict, top_count=3, num_images=8, resize_method=Image.NEAREST):
+    """
+    Args:
+      params (dict): A dictionary containing a `PredParams` for each model.
+        Specifies the *pred* function,  arguments to use to invoke each model.
+      top_count (int): How many top prediction values (class indexes, probabilities) to keep
+      num_images (int): Placeholder for number of images to process.
+      resize_method (enum): How to resize the image. Defaults to Image.NEAREST
+    """
     self.pred_params  = params
     self.model_list = [m for m in self.pred_params.keys() ]
     self.model_dict = {m:i for i,m in enumerate(self.model_list)}
@@ -576,22 +612,19 @@ class Classifier:
         
   def classify(self, imgs:list, top_count=None)->list:
     """
-    Generate predictions for each of the images, by model
+    Generate predictions for each of the images, by model.
+    Populates the Classifier `results` list, the `top_probs` ndarray, and the `top_classes` ndarray.
     
     Args:
-      imgs (list):
-        List of image file paths.
+      imgs (list): List of image file paths.
         Updates the value of `num_images` in the Classifier
-      top_count (int):
-        Reset how many predictions to keep for each img and model.
+      top_count (int): Reset how many predictions to keep for each img and model.
         If None, use the value already set in the Classifier.
         If set, updates the value saved in the Classifier
         
     Returns:
-      In the Classifier it allocated and populates the results list,
-        the top_probs ndarray, and the top_classes ndarray.
-        Returns the results list. 
-
+        The `results` list. There is one entry in the list for each image. Each entry
+        is a dict with predictions for the image, by model.
     """
     # Generate values, allocate arrays
     self.num_imgs    = len(imgs)
@@ -620,16 +653,20 @@ class Classifier:
 
   def preds_for(self, img_path: Upath) -> dict:
     """
-     Get all predictions for one image and return them in result item dict
+     Get all predictions for one image and return them in result item dict.
+     Will attempt to convert non-RGB images to RGB.
+
     Args:
       img_path (Upath): Path to the image
-      
-    Uses: 
-      `pred_dict` from Classifier
+
+    Uses:
+      The `pred_params` values from the Classifier
       
     Returns:
-      A return item. A dictionary with name, path, and 
-        `top_count` class, probability and label predictions for each of the models.
+      A `returns` list item. A dict with image name, path, and
+      the predicted `top_count` classes, probabilities and labels
+      for each of the models.
+
     """
     # Open image, fix RGBA images (or others) on the fly, if possible ...
     img_path = Path(img_path)
@@ -660,20 +697,20 @@ class Classifier:
 
 class Results:
   """
-  Results
+  Methods and parameters to display the results of classifying a list of images.
   """
-  def __init__(self, predictions:Classifier, pred2show:int=2, figsize=(3.0,3.5),
+  def __init__(self, predictions:Classifier, pred2show=2, figsize=(3.0,3.5),
                      cols=1, imgsize=(224,224), fontsize=12, fontfamily='monospace'):
     """
+
     Args:
-      self ():
-      predictions(Classifier):
-      pred2show(int):
-      fontsize(int): The fontsize
-      fontfamily(str): The font family
+      predictions (Classifier): The Classifier object containing the results.
+      pred2show (int): How many predictions to display
+      fontsize (int): The fontsize
+      fontfamily (str): The font family
 
     Returns:
-      DisplayResults Object
+      Results Object
 
     """
     super()
@@ -692,24 +729,21 @@ class Results:
     self.x = 0
     self.y = 0
 
-  """
-  Functions to display prediction results along side the image
-  """
-
 
   def add_pred(self, pred:ImagePrediction, model_id:str=None, n2show=2,
                      x:int=None, y:int=None):
     """
-    Add a Prediction to an existing axs. Call after "show_pred" to show additional model results for an image.
+    Add a Prediction to an existing axes.
+
     Args:
-      pred (ImagePrediction):
-      model_id (str):
-      n2show (int):
-      x (int):
-      y (int):
+      pred (ImagePrediction): Image Prediction named tuple
+      model_id (str): Model short name
+      n2show (int): How many predictions to display
+      x (int): starting x position for the text
+      y (int): starting y position for the text
 
     Returns:
-      current value of x,y coordinates (x,y is also saved in DisplayResults object)
+      Current value of x,y coordinates (x,y is also saved in Results object)
     """
 
     ax = self.ax
@@ -739,20 +773,17 @@ class Results:
   def show_one(self, result:dict, models:list=None,
                pred2show:int = None, img_size=None, figsize=None, fontsize=None, fontfamily=None):
     """
-    Show selected or all predictions for one image ( = one result item )
-      Args:
-        result(dict): The path to the image.
-        models(str): Display the (user-assigned) model identifier
-        pred2show(int): How many of the top results to show for each prediction.
-          Set to True to display immediately after show_pred call
-          Set to False to allow additional "add_pred" calls before displaying.
-          Use `plt.show()` to display when complete
+    Show selected or all predictions for one image ( = one result list item )
 
-      Returns:
-         axs: object from plt.subplot call
-         x:   x position
-         y:   y position
-         None if there are no predictions
+    Args:
+      result (dict): The predictions for each model.
+      models (list): For display, overrides the list of model names kept in Classifier.
+      pred2show (int): How many of the top results to show for each prediction.
+
+    Returns:
+      ax : Object from plt.subplot call.
+      None if there are no predictions
+
     """
     models      = if_None(models,   self.model_list)
     figsize     = if_None(figsize,  self.figsize)
@@ -791,10 +822,9 @@ class Results:
     """
     Show items from the result list
     Args:
-      items ():
-      models ():
-
-    Returns:
+      items (list): List of indexes into the results list.
+        Or an int to show one item only.
+      models (list): Constrains which models to show results for.
 
     """
     if type(items) is int:
@@ -806,8 +836,6 @@ class Results:
     for n in items :
       if n <= self.results_len :
         self.show_one(self.results[n], models=models)
-    return
-
 
   # def show_result(self, result:dict, pred2show:int=3, figsize=(3.0,3.5),
   #                 img_size=(224,224), fontsize=12, fontfamily='monospaced') :
