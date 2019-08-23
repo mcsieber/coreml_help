@@ -3,19 +3,18 @@ Python helper classes and functions to facilitate generation and display of pred
 
 What's here:
 
-class **Classifier**  to invoke models, and collect and manage the resulting predictions.
+class **`Classifier`**  to invoke models, and collect and manage the resulting predictions.
 
-class **Results**  to browse and display results saved by Classifier
+class **`Results`**  to browse and display results saved by Classifier
 
 Model Execution and Calculation Functions:
 
-```
-   norm_for_imagenet  Normalize using ImageNet values for mean and standard dev.
-   pred_for_coreml    Run and show Predictions for a native CoreML model
-   pred_for_onnx      Run and show Predictions for a native ONNX model
-   pred_for_o2c       Run and show Predictions for a CoreML model converted from ONNX
-   softmax
-```
+- `norm_for_imagenet` Normalize using ImageNet values for mean and std dev.
+- `pred_for_coreml`   Classify an image using a native CoreML model.
+- `pred_for_onnx`     Classify an image using a native ONNX model.
+- `pred_for_o2c`      Classify an image using a CoreML model converted from ONNX.
+- `softmax`
+
 The general purpose of the *pred* functions is
 
 - On input, take a standard image - e.g. RGB, pixels values from 0-255 - and transform it to be acceptable as input
@@ -32,11 +31,13 @@ def _doc(key:str, val:str): __pdoc__[key] = val
 
 # ----------------------------------------------------
 
-from collections import namedtuple
 from ms_util import *
+from typing import Callable
+from collections import namedtuple
 import matplotlib
 from matplotlib import pyplot as plt
 from PIL import Image, ImageOps
+import cv2
 
 """ 
 Formats and Data
@@ -44,23 +45,23 @@ Formats and Data
 
 ImagePrediction = namedtuple('ImagePrediction', 'topI topP topL')
 # doc
-_doc('ImagePrediction','Namedtuple: standard format returned from *pred* functions')
+_doc('ImagePrediction','*Namedtuple*: standard format returned from *pred* functions')
 _doc('ImagePrediction.topI', 'Indexes to top classes')
 _doc('ImagePrediction.topP', 'Top probabilities')
 _doc('ImagePrediction.topL', 'Top class Labels')
 
 ImageRepo  = namedtuple('ImageRepo' , 'mean std labels_url')
 # doc
-_doc('ImageRepo','Namedtuple that lists normalization stats and URLs for a repository')
+_doc('ImageRepo','*Namedtuple* that lists normalization stats and URLs for a repository')
 _doc('ImageRepo.mean', '*mean* values for normalization')
 _doc('ImageRepo.std', '*std* values for normalization')
 _doc('ImageRepo.labels_url', 'URL for class labels')
 
 PredParams = namedtuple('PredParams','func runtime imgsize labels')
 # doc
-_doc('PredParams', 'Namedtuple: specifies the prediction function, the runtime session for a model, the expected image size and the class labels')
+_doc('PredParams', '*Namedtuple*: specifies the prediction function, the runtime session for a model, the expected image size and the class labels')
 _doc('PredParams.func', '*pred* function to use')
-_doc('PredParams.runtime', 'model object to invoke to genreate predictions')
+_doc('PredParams.runtime', 'model object to invoke to generate predictions')
 _doc('PredParams.imgsize', 'tuple for the expected image size')
 _doc('PredParams.labels', 'List containing the class labels, or None')
 
@@ -280,7 +281,7 @@ _no_results = ([0], [0.00], ["No Results"])
 === Prediction Functions ===============================
 """
 
-def pred_for_coreml(model, img:Uimage, labels=None, n_top:int=3 )->ImagePrediction:
+def pred_for_coreml(model:Callable, img:Uimage, labels=None, n_top:int=3 )->ImagePrediction:
   """
   Run a native CoreML Classifier and return the top results as a standardized *ImagePrediction*.
   If you want to run a CoreML model **converted** from ONNX, use `pred_for_o2c`
@@ -289,9 +290,16 @@ def pred_for_coreml(model, img:Uimage, labels=None, n_top:int=3 )->ImagePredicti
     model (object): The coreml model to use for the prediction
     img (Image.Image): Fitted image to use for test
     n_top (int): Number of top values to return (default 3)
+    labels (list): Not needed for CoreML, ignored. Kept as an argument for consistency with other "pred" functions.
 
   Returns:
     ImagePrediction
+
+  Notes:
+    The the description for the native CoreML Resnet50 model states that it takes images in BGR format.
+    However, converting input images from RGB to BGR results in much poorer predictions than leaving them in RGB.
+    So I'm assuming that the model does some pre-processing to check the image and do the conversion on its own.
+    Or maybe the description is incorrect.
   """
 
   topI, topP, topL = _no_results
@@ -430,7 +438,7 @@ def pred_for_onnx(sess:object, img:Uimage, labels=None, n_top=3 )->ImagePredicti
   return _image_pred(topI=topI, topP=topP, topL=topL)
 
 
-def pred_for_torch(model:object, img:Uimage, labels=None, n_top:int=3, )->ImagePrediction:
+def pred_for_torch(model:Callable, img:Uimage, labels=None, n_top:int=3, )->ImagePrediction:
   """
   Run the Torch Classifier model return the top results.
 
@@ -606,8 +614,22 @@ class Classifier:
     self.stat_int   = None
         
         
-  def i2m(self,i:int)->str: return self.model_list[i]    
-  def m2i(self,m:str)->int: return self.model_dict[m]
+  def i2m(self,i:int)->str:
+    """
+    Return the model short name for the index `i`
+    Args:
+      i (int): Index into the `model_list`
+    """
+    return self.model_list[i]
+
+
+  def m2i(self,m:str)->int:
+    """
+    Return the index into the model_list for the model short name
+    Args:
+      m (str): Short name (or id, or abbreviation) for the model.
+    """
+    return self.model_dict[m]
   
         
   def classify(self, imgs:list, top_count=None)->list:
@@ -697,14 +719,17 @@ class Classifier:
 
 class Results:
   """
-  Methods and parameters to display the results of classifying a list of images.
+  Methods and parameters to
+  - display the results of classifying a list of images
+  - compare results
+  - calculate and display agreement between models
   """
-  def __init__(self, predictions:Classifier, pred2show=2, figsize=(3.0,3.5),
+  def __init__(self, classifier:Classifier, pred2show=2, figsize=(3.0,3.5),
                      cols=1, imgsize=(224,224), fontsize=12, fontfamily='monospace'):
     """
 
     Args:
-      predictions (Classifier): The Classifier object containing the results.
+      classifier (Classifier): The Classifier object containing the results.
       pred2show (int): How many predictions to display
       fontsize (int): The fontsize
       fontfamily (str): The font family
@@ -714,24 +739,145 @@ class Results:
 
     """
     super()
-    self.resize_method = predictions.resize_method
-    self.model_list = predictions.model_list
-    self.results    = predictions.results
+    self.classifier = classifier
+    self.resize_method = classifier.resize_method
+    self.model_list = classifier.model_list
+    self.model_dict = classifier.model_dict
+    self.results    = classifier.results
     self.results_len = len(self.results)
+    self.num_imgs    = classifier.num_imgs
+    self.top_classes = classifier.top_classes
+    self.top_probs  = classifier.top_probs
     self.fontsize   = fontsize
     self.fontfamily = fontfamily
     self.figsize    = figsize
     self.imgsize    = imgsize
     self.cols       = cols
     self.pred2show  = pred2show
-    self.model_id = None
-    self.ax = None
-    self.x = 0
-    self.y = 0
+    self.m2i = classifier.m2i
+    self.i2m = classifier.i2m
+    self.x   = 0
+    self.y   = 0
+    #
+    self.ax           = None
+    self.model_id     = None
+    self.agree        = None
+    self.agree_counts = None
+    self.agree_diff   = None
+    #
+    self._init_agreement()
 
 
-  def add_pred(self, pred:ImagePrediction, model_id:str=None, n2show=2,
-                     x:int=None, y:int=None):
+
+  def _init_agreement(self):
+
+    cf  = self.classifier
+    tc  = cf.top_classes
+    tp  = cf.top_probs
+    CML = cf.m2i('cml')
+
+    # Allocate the 2 and 3 dim arrays we will need
+    nm  = cf.num_models
+    ni  = cf.num_imgs
+    self.agree        = np.empty((nm, nm, ni), dtype=bool)
+    self.agree_counts = np.empty((nm, nm), dtype=int)
+    self.agree_diff   = np.empty((nm, nm, ni), dtype=float)
+
+    # Populate the agreement tensors (CML will need to be revised ... see below)
+    for im, m in enumerate(cf.model_list):
+      for ik, k in enumerate(cf.model_list):
+        self.agree[im, ik]        = tc[im, :, 0] == tc[ik, :, 0]
+        self.agree_counts[im, ik] = self.agree[im, ik].sum()
+
+    # Get accurate CML agreement counts
+    for ir, r in enumerate(self.results):
+      cml_comp = self._cml_compare(r)
+      self.agree[CML, :, ir] = cml_comp
+      self.agree[:, CML, ir] = cml_comp
+
+    # Replace CML in the `agree` and `agree_counts` with accurate results
+    for im, m in enumerate(cf.model_list):
+      cml_sum = self.agree[CML, im, :].sum()
+      self.agree_counts[CML, im] = cml_sum
+      self.agree_counts[im, CML] = cml_sum
+
+    # Populate the agreement difference matrix
+    # If the two models agree on the top class, use the difference in probabilities,
+    # if not, use 1.0 (they disagree 100% = no agreement )
+    for im, m in enumerate(cf.model_list):
+      for ik, k in enumerate(cf.model_list):
+        for ir, r in enumerate(self.results):
+          self.agree_diff[im, ik, ir]   = abs(tp[im, ir , 0] - tp[ik, ir , 0 ]) if self.agree[im,ik,ir] else 1.0
+
+
+  def _cml_compare(self, res_item: dict) -> ndarray:
+    """
+    A results comparison function just for cml ...
+
+    For this result item (i.e. image), compare the top CML label to the top label for the other models
+    Return boolean array indicating which models agree with CML and which do not
+    """
+    # Allocate an empty array, get the CML label, clean it up
+    cml_agree = np.empty(len(self.model_list), dtype=bool)
+    cml_label = res_item['cml'].topL[0]
+    #print("")
+    #print(f"cml label   = {cml_label}")
+    cml_label.strip(' ,-:;')
+    #print(f"cml label s = {cml_label}")
+    # Compare the CML label to each of the top labels for the other models
+    for im, m in enumerate(self.model_list):
+      topL0 = res_item[m].topL[0]
+      mitem = re.search(cml_label, topL0)
+      cml_agree[im] = (mitem is not None)
+      #print(f"m     = {m}")
+      #print(f"topL0 = {topL0}")
+      #print(f"mitem = {mitem}")
+      #print(f"im    = {im}")
+      #print(f"cml_agree[im] = { cml_agree[im] }")
+      #print("")
+    #
+    #print(f"cml_agree = {cml_agree}")
+    return cml_agree
+
+  def agree_matrix(self):
+    """Show a heat-mapped agreement matrix"""
+    fig, ax = plt.subplots(figsize=(8, 8))
+    am, _   = heatmap(self.agree_counts, self.model_list, self.model_list,
+                      ax=ax, cmap="PiYG", cbarlabel="Agreement")
+    annotate_heatmap(am, valfmt="{x:d}", textcolors=["white", "black"], size=12)
+    am = ax.imshow(self.agree_counts)
+    return am
+
+  def best_worst( self, model1:str, model2:str )->(int,int):
+    """
+    **Agreement** - Returns indexes to the results with the best(= min diff) and worst(= max diff)
+    agreement between two models
+
+    Args:
+      model1 (str): model id specified in model_params( e.g. "onnx")
+      model2 (str): model id specified in in model_params
+
+    """
+    M1, M2 = self.m2i(model1), self.m2i(model2)
+    # Copy the result array bkz we are going to zap it
+    mmd = self.agree_diff[M1,M2].copy()
+    best = mmd.argmin()
+    # Zero all the "1.0" that represent the diff for non-matching classes
+    mmd[mmd == 1.0] = 0.0
+    # Now we can get an argmax diff for those classes that do match
+    worst  = mmd.argmax()
+    return best, worst
+
+
+  def most_least(self)->dict:
+    """**Certainty** - Return the most and least certain results for all models"""
+    tp = self.classifier.top_probs
+    model_most_least  = [ [tp[im,:,0].argmax(), tp[im,:,0].argmin()] for im,m in enumerate(self.classifier.model_list) ]
+    return model_most_least
+
+
+  def _add_pred(self, pred:ImagePrediction, model_id:str=None, n2show=2,
+                x:int=None, y:int=None):
     """
     Add a Prediction to an existing axes.
 
@@ -769,6 +915,15 @@ class Results:
     self.y = y + n2show * y_per_line
     return x, y
 
+  def show_agreement(self,model1:str):
+    """Show agreement counts between `model1` and the others"""
+    cf    = self.classifier
+    M1    = cf.m2i(model1)
+    nimgs = cf.num_imgs
+    for im, m in enumerate(cf.model_list):
+      agreed = self.agree_counts[M1, im]
+      print(f"{model1:7} and {m:7} agree on {agreed:4} of {nimgs:4} or {agreed / nimgs:2.2%}")
+
 
   def show_one(self, result:dict, models:list=None,
                pred2show:int = None, img_size=None, figsize=None, fontsize=None, fontfamily=None):
@@ -785,7 +940,8 @@ class Results:
       None if there are no predictions
 
     """
-    models      = if_None(models,   self.model_list)
+    cf          = self.classifier
+    models      = if_None(models,   cf.model_list)
     figsize     = if_None(figsize,  self.figsize)
     img_size    = if_None(img_size, self.imgsize)
     fontsize    = if_None(fontsize, self.fontsize)
@@ -799,7 +955,7 @@ class Results:
     indent = 20
 
     # Show the image without frame or ticks
-    fimg = ImageOps.fit(Image.open(img_path), size=img_size, method=self.resize_method, centering=(0.5, 0.4))
+    fimg = ImageOps.fit(Image.open(img_path), size=img_size, method=cf.resize_method, centering=(0.5, 0.4))
     fig, ax = plt.subplots(1, 1, figsize=figsize, subplot_kw=dict(frame_on=False, xticks=[], yticks=[]))
     self.ax = ax
     ax.imshow(fimg)
@@ -813,12 +969,12 @@ class Results:
     self.x = x + indent
     self.y = y + y_per_line
     for m in models:
-      self.add_pred(result[m], model_id=m, n2show=pred2show)
+      self._add_pred(result[m], model_id=m, n2show=pred2show)
 
     plt.show()
     return ax
 
-  def show(self, items:Union[int,list], models=None ):
+  def show(self, items:Union[int,list,tuple], models=None ):
     """
     Show items from the result list
     Args:
@@ -827,15 +983,20 @@ class Results:
       models (list): Constrains which models to show results for.
 
     """
+    results = self.classifier.results
+    rlen    = self.results_len
+
     if type(items) is int:
-      if items <= self.results_len :
-        self.show_one(self.results[items], models=models)
+      if items <= rlen :
+        self.show_one(results[items], models=models)
       return
-    if type(items) is not list:
+
+    if type(items) is not list and type(items) is not tuple:
       raise TypeError(f"type(items)={type(items)}; 'items' must be an int or a list of ints")
+
     for n in items :
-      if n <= self.results_len :
-        self.show_one(self.results[n], models=models)
+      if n <= rlen :
+        self.show_one(results[n], models=models)
 
   # def show_result(self, result:dict, pred2show:int=3, figsize=(3.0,3.5),
   #                 img_size=(224,224), fontsize=12, fontfamily='monospaced') :
@@ -846,7 +1007,7 @@ class Results:
   #       img(Image): Image to use (optional, if not passed, image is read from 'img_path')
   #       pred2show(int): How many of the top results to show for each prediction.
   #         Set to True to display immediately after show_pred call
-  #         Set to False to allow additional "add_pred" calls before displaying.
+  #         Set to False to allow additional "_add_pred" calls before displaying.
   #         Use `plt.show()` to display when complete
   #
   #     Returns:
@@ -879,7 +1040,7 @@ class Results:
   #   self.x = x + indent
   #   self.y = y + y_per_line + 2
   #   for m in models[1:len(models)]:
-  #      self.add_pred( result[m], model_id=m, n2show=pred2show)
+  #      self._add_pred( result[m], model_id=m, n2show=pred2show)
   #
   #   plt.show()
   #   return ax
@@ -889,7 +1050,7 @@ class Results:
     display_list = random.sample(range(self.results_len), count)
     display_list.sort()
     print(f"\nShowing results {display_list} \n  and top {self.pred2show} probabilities for each model")
-    self.show(display_list, models=None)
+    self.show(display_list, models=models)
 
 
 
