@@ -104,15 +104,13 @@ class CoremlBrowser:
     - `show_tail`        Convenience functions  of  method `show_nn`
     - `get_rand_images`  Return images (jpg and png) randomly sampled from child dirs.
 
-  -------
+  --------
   """
 
   def __init__(self, mlmodel: Union[Upath, MLModel]):
     """
-
     Args:
       mlmodel: Either the path to the `protobuf` spec, or an extant `MLModel` object
-
     """
     self.mlmodel = None
     """ A MLModel object. The result of **compiling** the '.mlmodel' file """
@@ -160,9 +158,10 @@ class CoremlBrowser:
       which (should) contain shape info, or an empty string.
 
     Note:
-      The *OSX shell command* to run the compiler is
+       XCode installs `coremlcompiler`.
+       An example of the *OSX shell command* to run the compiler is
 
-      `xcrun coremlcompiler compile rn50.mlmodel out > rn50-compile-out.txt`
+      `xcrun coremlcompiler compile rn50.mlmodel rn50_out_dir `
 
     """
     from sys import platform
@@ -488,13 +487,10 @@ class CoremlBrowser:
 
     return line1 + "\n" + line2 + "\n"
 
-
   # So that these can be changed dynamically, for now
   sp = "   " # formatting spacer
   _one_line_heading = f"Lay Name{ sp:6}In{sp:9}Out{sp:9}Shapes{sp:10}Type,Chan(s){sp:9}Size,Stride,Dilation,#Wts"
   _two_line_heading = f"Lay Name{sp:21}In/Out{sp:26}Type,Chan(s)/Shape{sp:3}Size,Stride,Dilation,#Wts"
-  #_two_line_heading = f"Lay Name{sp:20}In/Out{sp:30}Type,Chan(s){sp:7}Size,Stride,Dilation,#Wts"
-
 
   def show_nn(self,  start:Union[int,str]=0, count=4,  break_len=8 ) -> None:
     """
@@ -542,7 +538,6 @@ class CoremlBrowser:
       print(format_layer(ly, li))
       li += 1
 
-
   """ 
   CoreML Model Surgery - connect and delete layers 
   """
@@ -583,7 +578,7 @@ class CoremlBrowser:
       ```
       returns:
 
-        `  (changed_layer =  'None', error = "Layer ['conv100'] not found")  `
+        `(changed_layer =  'None', error = "Layer ['conv100'] not found")`
     """
     from copy import deepcopy
 
@@ -626,7 +621,7 @@ class CoremlBrowser:
     returns:
     ```
       [
-        {'deleted_layer': 'conv335',  'input': ['bn334'], 'output': ['conv335']},
+        {'deleted_layer': 'conv335', 'input': ['bn334'], 'output': ['conv335']},
         {'deleted_layer': 'bn400', 'input': ['conv399'], 'output': ['bn400']},
       ]
     ```
