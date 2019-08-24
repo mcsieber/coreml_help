@@ -44,23 +44,27 @@ Once initialized, captures and keeps track of :
 
 ## [pred_help](https://mcsieber.github.io/pred_help.html)
 
-Python helper classes and functions to facilitate generation and display
-of predictions from CoreML, ONNX, and Torch models.
+Python helper classes and functions to facilitate generation and display of predictions from CoreML, ONNX, and Torch models.
 
-### Classes
+What's here:
 
-#### Classifier 
-To invoke models, and collect and manage the resulting predictions.
+Class **`Classifier`**  to invoke models, and collect and manage the resulting predictions.
 
-#### Results
-To browse and display results saved by Classifier
+Class **`Results`**  to browse and display results saved by Classifier
 
-#### Model Execution and Calculation Functions:
-```
-   norm_for_imagenet  Normalize using ImageNet values for mean and standard dev.
-   pred_for_coreml    Run and show Predictions for a native CoreML model
-   pred_for_onnx      Run and show Predictions for a native ONNX model
-   pred_for_o2c       Run and show Predictions for a CoreML model converted from ONNX
-   softmax
-```
+Model Execution and Calculation Functions:
+
+- `norm_for_imagenet` Normalize using ImageNet values for mean and std dev.
+- `pred_for_coreml`   Classify an image using a native CoreML model.
+- `pred_for_onnx`     Classify an image using a native ONNX model.
+- `pred_for_o2c`      Classify an image using a CoreML model converted from ONNX.
+- `softmax`
+
+The general purpose of the *pred* functions is
+
+- On input, take a standard image - e.g. RGB, pixels values from 0-255 - and transform it to be acceptable as input
+to the specific model. This might require normalizing the data, or rescaling to the interval 0.0 - 1.0, etc.
+
+- On output, take the output from the model and transform it to an `ImagePrediction`
+
 ---------------------
