@@ -81,7 +81,7 @@
   pre code {
     background: #f8f8f8;
     font-size: .8em;
-    line-height: 1.3em;
+    line-height: 1.4em;
   }
   code {
     background: #f2f2f1;
@@ -160,7 +160,7 @@
     .name {
       background: #eee;
       font-weight: bold;
-      font-size: 0.85em;
+      font-size: 1.1em;         /* mcs 0815 */
       padding: 5px 10px;
       display: inline-block;
       min-width: 40%;
@@ -267,22 +267,22 @@
 <%def name="desktop()" filter="minify_css">
   @media screen and (min-width: 700px) {
     #sidebar {
-      width: 20%;
+      width: 30%;
     }
     #content {
-      width: 80%;
+      width: 70%;
       max-width: 100ch;
       padding: 3em 4em;
       border-left: 1px solid #ddd;
     }
     pre code {
-      font-size: 0.8em;
+      font-size: 1em;
     }
     .item .name {
-      font-size: 1.2em;
+      font-size: 1em;
     }
     main {
-      display: flex; 
+      display: flex;
       flex-direction: row-reverse;
       justify-content: flex-end;
     }

@@ -1,6 +1,10 @@
 ## General
-#html/*
+html/*
 docs/*
+zzz*
+debug/*
+notes/*
+*.mlmodelc
 
 # OSX, PyCharm, Notebook checkpoints, Compiled python
 .idea
