@@ -2,9 +2,9 @@
 
 Python helper functions to facilitate working with CoreML and ONNX and converting from one to the other.
 
-[Documentation](https://mcsieber.github.io/coreml_help)
-> Note The docs above are somewhat out of date - they don't reflect the most recent source.
-I hope to have an update this week - Mark - 2019-08-12
+### Documentation
+- **[coreml_help](https://mcsieber.github.io/coreml_help.html)**
+- **[pred_help](https://mcsieber.github.io/pred_help.html)**
 
 These functions depend on package `coremltools`. If you are converting between ONNX and CoreML,
 you will need `onnx_coreml`, `onnx`, and `onnxruntime` as well.
@@ -47,10 +47,15 @@ Once initialized, captures and keeps track of :
 Python helper classes and functions to facilitate generation and display
 of predictions from CoreML, ONNX, and Torch models.
 
-class **Classifier**  to invoke models, and collect and manage the resulting predictions.
-class **Results**  to browse and display results saved by Classifier
+### Classes
 
-Model Execution and Calculation Functions:
+#### Classifier 
+To invoke models, and collect and manage the resulting predictions.
+
+#### Results
+To browse and display results saved by Classifier
+
+#### Model Execution and Calculation Functions:
 ```
    norm_for_imagenet  Normalize using ImageNet values for mean and standard dev.
    pred_for_coreml    Run and show Predictions for a native CoreML model
