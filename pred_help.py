@@ -3,11 +3,17 @@ Python helper classes and functions to facilitate generation and display of pred
 
 What's here:
 
-class **`Classifier`**  to invoke models, and collect and manage the resulting predictions.
+**Class `Classifier`**
 
-class **`Results`**  to browse and display results saved by Classifier
+To invoke models, and collect and manage the resulting predictions.
+For examples, see [coreml_help_examples](https://github.com/mcsieber/coreml_help/blob/master/coreml_help_examples.ipynb)
 
-Model Execution and Calculation Functions:
+**Class `Results`**
+
+To display *results*, *agreement*, and *certainty*.
+For examples, see [pred_help_examples](https://github.com/mcsieber/coreml_help/blob/master/pred_help_examples.ipynb)
+
+**Model Execution and Calculation Functions**
 
 - `norm_for_imagenet` Normalize using ImageNet values for mean and std dev.
 - `pred_for_coreml`   Classify an image using a native CoreML model.
@@ -222,17 +228,16 @@ def norm_for_imagenet(img: Uimage) -> ndarray:
   Normalize an image using ImageNet values for mean and standard deviation.
 
   Args:
-    img(ndarray,Image.Image): Image data with values between 0-255.
+    img (ndarray,Image.Image): Image data with values between 0-255.
       If not an ndarray, must be convertible to one.
       Shape must be either (3,_,_) or (_,_,3)
 
-  Return:
-    Normalized image data as an ndarray[float32]
+  Returns: (ndarray): Normalized image data as an ndarray[float32].
 
-  Raises:
-    ValueError: If image shape is not (3,_,_) or (_,_,3), or number of dimensions is not 3
+  Raises: (ValueError): If image shape is not (3,_,_) or (_,_,3), or number of dimensions is not 3.
 
   Notes:
+
     For each pixel in each channel, scale to the interval [0.0, 1.0] and then
     normalize using the mean and standard deviation from ImageNet.
     The input values are assumed to range from 0-255,
@@ -720,9 +725,9 @@ class Classifier:
 class Results:
   """
   Methods and parameters to
-  - display the results of classifying a list of images
-  - compare results
-  - calculate and display agreement between models
+    - display the results of classifying a list of images
+    - compare results
+    - calculate and display agreement between models
   """
   def __init__(self, classifier:Classifier, pred2show=2, figsize=(3.0,3.5),
                      cols=1, imgsize=(224,224), fontsize=12, fontfamily='monospace'):
@@ -869,11 +874,11 @@ class Results:
     return best, worst
 
 
-  def most_least(self)->dict:
+  def most_least(self)->list:
     """**Certainty** - Return the most and least certain results for all models"""
     tp = self.classifier.top_probs
-    model_most_least  = [ [tp[im,:,0].argmax(), tp[im,:,0].argmin()] for im,m in enumerate(self.classifier.model_list) ]
-    return model_most_least
+    most_least_list  = [ [tp[im,:,0].argmax(), tp[im,:,0].argmin()] for im,m in enumerate(self.classifier.model_list) ]
+    return most_least_list
 
 
   def _add_pred(self, pred:ImagePrediction, model_id:str=None, n2show=2,
@@ -935,9 +940,7 @@ class Results:
       models (list): For display, overrides the list of model names kept in Classifier.
       pred2show (int): How many of the top results to show for each prediction.
 
-    Returns:
-      ax : Object from plt.subplot call.
-      None if there are no predictions
+    Returns: Object from plt.subplot call or `None` if there are no predictions.
 
     """
     cf          = self.classifier
