@@ -178,19 +178,18 @@ class CoremlBrowser:
     Extract the shape of the network layers from the mlmodel compilation output file.
 
     Args:
-      comp_output: The text output captured from compiling the .mlmodel file.
+      comp_output: The text output captured from compiling the ".mlmodel" file.
 
-    Returns a dictionary of lists keyed by layer name, each list is a triplet [C,H,W]
-    representing the output shape of that layer.
+    Returns:
+      A dictionary of lists keyed by layer name. Each list is a triplet `[C,H,W]` representing the output shape of that layer.
 
-        `{ layer0_name:[C,H,W], layer1_name:[C,H,W] .. }`
+        `{ layer0_name:[C,H,W], layer1_name:[C,H,W] ... }`
 
     Notes:
-      Here is an sample line from the compiler output
+      Here is an sample line from the compiler output.
 
-    `
-    Neural Network compiler 174: 320 , name = 507, output shape : (C,H,W) = (4096, 1, 1)
-    `
+      `Neural ... 174:320, name=507, output shape : (C,H,W)=(4096,1,1)`
+
     """
     if comp_output is None or  len(comp_output) < 20 :
       print(f"Compilation output string is None or too small",f"compiliation output: {comp_output}" )
@@ -224,22 +223,23 @@ class CoremlBrowser:
     return layer_shapes
 
 
-  def init_shapes(self, use_shaper=False):
+  def init_shapes(self, use_shaper=False)->bool:
     """
     Get shapes for the layers in the model. Compiles model to get shapes.
 
     Args:
-      use_shaper (bool):
-        False => Ignore the shaper object, try to compile model to get shapes
-        True  => Use the shaper object if available
+      use_shaper (bool): How to generate and capture the shapes.
 
-    Returns:
-      True for success => the object variable `layer_shapes` contains a valid shape dictionary
-      False for failure
+        - `False` Ignore the shaper object, try to compile model to get shapes.
+        - `True` Use the shaper object if available.
 
-    The`NeuralNetworkShaper` object crashes python sometimes
-    (prob. because the network is invalid in some way),
-    - so it is not preferred.
+    Return:
+      - `True` for success; the instance variable `layer_shapes` contains a valid shape dictionary.
+      - `False` for failure.
+
+      The`NeuralNetworkShaper` object crashes python sometimes
+      (prob. because the network is invalid in some way),
+      so it is not preferred.
     """
     self.layer_shapes = None
     self.shaper       = None
@@ -553,17 +553,16 @@ class CoremlBrowser:
     Args:
       from_ (str): The name of the layer supplying the outputs
 
-      to_ (str): The name of the layer receiving the `from` outputs.
-                   This layer's `input` field is modified.
+      to_ (str): The name of the layer receiving the `from` outputs. This layer's `input` field is modified.
 
-      replace (bool): *True* (default) **Replaces** (overwrites)
-                  the *to layer*'s `input` with the *from layer*'s `output`.
-                  *False* **appends** the *from layer*'s `output` to the the *to layer*'s `input`.
+      replace (bool): **`True`** **replaces** (overwrites) the *to layer*'s `input` with the *from layer*'s `output`.
+        **`False`** **appends** the *from layer*'s `output` to the the *to layer*'s `input`.
 
-    Return:
-      A named tuple describing the change (see examples that follow)
+    Returns:
+      A *named tuple* describing the change (see examples that follow)
 
     Examples:
+      The statements
       ```
         cmb = CoremlBrowser( ... path to 'mlmodel' file ...)
         cmb.connect_layers(from_='conv336', to_='bnorm409')
@@ -573,7 +572,9 @@ class CoremlBrowser:
         ( changed_layer = 'bnorm409',
           input_before  = ['concat408_output', 'add400_output'],
           input_after   = ['conv336_output'] )
-
+      ```
+      The statement
+      ```
          connect_layers(nn, from_='conv100', to_='concat408')
       ```
       returns:
