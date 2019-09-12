@@ -571,27 +571,6 @@ def show_pred(img_path:Upath, pred:ImagePrediction, model_id="Model",
 
   plt.show()
 
-  #
-
-# def preds_result(img_path: Upath, pred_dict: dict) -> dict:
-#   """ Get all predictions for one image and return them in result item dict"""
-#
-#   # Fix RGBA images (or others) on the fly, if possible ...
-#   img = Image.open(img_path)
-#   if img.mode != 'RGB':
-#     print(f'Converting {img.name} to RGB from {img.mode} ')
-#     img = img.convert('RGB')
-#
-#   # Some of the models are picky about the image size ...
-#   img_sized = { 224 : ImageOps.fit(img, (224, 224), method=_resize_method, centering=(0.5, 0.4) ),
-#                 300 : ImageOps.fit(img, (300, 300), method=_resize_method, centering=(0.5, 0.4) ) }
-#
-#   # Create result item for this image using the prediction dictionary
-#   res = { 'name': img.name, 'path':img_path}
-#   for model, pred in pred_dict:
-#     res[model] = pred.func(pred.runtime, img_sized[pred.imgsize], pred.labels)
-#
-#   return res
   
 class Classifier:
   """
@@ -725,9 +704,11 @@ class Classifier:
 class Results:
   """
   Methods and parameters to
+
     - display the results of classifying a list of images
     - compare results
     - calculate and display agreement between models
+
   """
   def __init__(self, classifier:Classifier, pred2show=2, figsize=(3.0,3.5),
                      cols=1, imgsize=(224,224), fontsize=12, fontfamily='monospace'):
@@ -825,23 +806,14 @@ class Results:
     # Allocate an empty array, get the CML label, clean it up
     cml_agree = np.empty(len(self.model_list), dtype=bool)
     cml_label = res_item['cml'].topL[0]
-    #print("")
-    #print(f"cml label   = {cml_label}")
     cml_label.strip(' ,-:;')
-    #print(f"cml label s = {cml_label}")
+
     # Compare the CML label to each of the top labels for the other models
     for im, m in enumerate(self.model_list):
       topL0 = res_item[m].topL[0]
       mitem = re.search(cml_label, topL0)
       cml_agree[im] = (mitem is not None)
-      #print(f"m     = {m}")
-      #print(f"topL0 = {topL0}")
-      #print(f"mitem = {mitem}")
-      #print(f"im    = {im}")
-      #print(f"cml_agree[im] = { cml_agree[im] }")
-      #print("")
-    #
-    #print(f"cml_agree = {cml_agree}")
+
     return cml_agree
 
   def agree_matrix(self):
@@ -1001,52 +973,6 @@ class Results:
       if n <= rlen :
         self.show_one(results[n], models=models)
 
-  # def show_result(self, result:dict, pred2show:int=3, figsize=(3.0,3.5),
-  #                 img_size=(224,224), fontsize=12, fontfamily='monospaced') :
-  #   """
-  #   Show selected or all predictions for one image ( = one result item )
-  #     Args:
-  #       result(dict): The path to the image.
-  #       img(Image): Image to use (optional, if not passed, image is read from 'img_path')
-  #       pred2show(int): How many of the top results to show for each prediction.
-  #         Set to True to display immediately after show_pred call
-  #         Set to False to allow additional "_add_pred" calls before displaying.
-  #         Use `plt.show()` to display when complete
-  #
-  #     Returns:
-  #        axs: object from plt.subplot call
-  #        x:   x position
-  #        y:   y position
-  #        None if there are no predictions
-  #   """
-  #
-  #   models = [m for m in result.keys() if m not in ['name','path']]
-  #
-  #   img_path = Path(result['path'])
-  #
-  #   y_start       = 4
-  #   y_per_line    = int(1.9 * self.fontsize)
-  #   indent        = 20
-  #
-  #   # Show the image  without frame or ticks
-  #   fimg     = ImageOps.fit(Image.open(img_path), size=img_size, method=Image.NEAREST, centering=(0.5, 0.4))
-  #   fig, ax  = plt.subplots(1, 1, figsize=figsize, subplot_kw=dict(frame_on=False, xticks=[], yticks=[]))
-  #   self.ax  = ax
-  #   ax.imshow(fimg)
-  #
-  #   # Show the image file name
-  #   x = img_size[0] + indent - 4
-  #   y = y_start
-  #   ax.text(x, y, img_path.name, fontsize=fontsize, fontfamily=fontsize)
-  #
-  #   # Show the model(s) and their prediction probabilities
-  #   self.x = x + indent
-  #   self.y = y + y_per_line + 2
-  #   for m in models[1:len(models)]:
-  #      self._add_pred( result[m], model_id=m, n2show=pred2show)
-  #
-  #   plt.show()
-  #   return ax
 
   def show_random(self,count=5,models=None) :
     import random
